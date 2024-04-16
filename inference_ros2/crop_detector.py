@@ -12,6 +12,7 @@ from sensor_msgs.msg import CompressedImage
 # inference imports
 import onnxruntime as rt
 
+from utils import non_max_suppression, process_mask
 class CropDetector(Node):
 
     def __init__(self, mode='onnx'):
@@ -36,6 +37,8 @@ class CropDetector(Node):
         # inference
         if self.inference_mode == 'onnx':
             outputs = self.model.run(None, {self.input_name: cv_image})
+            detections, masks = self.postprocess_image(outputs)
+            
         elif self.inference_mode == 'tensorrt':
             pass
         else:
@@ -60,6 +63,7 @@ class CropDetector(Node):
         
     def preprocess_image(self, image):
         """Preprocess the image for inference"""
+        self.orig_shape = image.shape
         # resize and pad to square the resolution
         b, c, h, w = self.model.get_inputs()[0].shape
         self.input_name = self.model.get_inputs()[0].name
@@ -79,20 +83,26 @@ class CropDetector(Node):
             image = image.astype(np.float32)
         assert image.shape == (b, c, h, w)
         return image
+    
+    def postprocess_image(self, output):
+        """Postprocess the model output for publishing"""
+        det = output[0]
+        masks = output[4]
+        pred = non_max_suppression(prediction=det, conf_thres=0.50, iou_thres=0.45, nm=32)[0] #TODO nm dimension to be set?
+        masks = process_mask(protos=masks[0], 
+                             masks_in=pred[:, 6:], 
+                             bboxes=pred[:, :4], 
+                             shape=(self.orig_shape[0], self.orig_shape[1]), 
+                             upsample=True)
+        
+        return pred, masks
 
 def main(args=None):
     rclpy.init(args=args)
-
     subscriber = CropDetector()
-
     rclpy.spin(subscriber)
-
-    # Destroy the node explicitly
-    # (optional - otherwise it will be done automatically
-    # when the garbage collector destroys the node object)
     subscriber.destroy_node()
     rclpy.shutdown()
-
 
 if __name__ == '__main__':
     main()
