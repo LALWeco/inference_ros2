@@ -6,12 +6,13 @@ import numpy as np
 import imutils
 
 # message definitions
-from vision_msgs.msg import Detection2DArray
-from sensor_msgs.msg import CompressedImage
+from vision_msgs.msg import Detection2D, Detection2DArray, Detection2DArrayMask, BoundingBox2D, ObjectHypothesisWithPose, ObjectHypothesis
+from sensor_msgs.msg import CompressedImage, Image
 
 # inference imports
 import onnxruntime as rt
 
+classes = ['crop', 'weed']
 from utils import non_max_suppression, process_mask
 class CropDetector(Node):
 
@@ -30,6 +31,8 @@ class CropDetector(Node):
             pass
         else:   
             raise ValueError('Invalid mode. Choose either onnx or tensorrt')
+        
+        self.publisher = self.create_publisher(Detection2DArrayMask, '/cropweed/instance_seg', 10)
 
     def listener_callback(self, msg):
         cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
@@ -38,7 +41,7 @@ class CropDetector(Node):
         if self.inference_mode == 'onnx':
             outputs = self.model.run(None, {self.input_name: cv_image})
             detections, masks = self.postprocess_image(outputs)
-            
+            print('hold')
         elif self.inference_mode == 'tensorrt':
             pass
         else:
@@ -88,14 +91,38 @@ class CropDetector(Node):
         """Postprocess the model output for publishing"""
         det = output[0]
         masks = output[4]
-        pred = non_max_suppression(prediction=det, conf_thres=0.50, iou_thres=0.45, nm=32)[0] #TODO nm dimension to be set?
+        preds = non_max_suppression(prediction=det, conf_thres=0.50, iou_thres=0.45, nm=32)[0] #TODO nm dimension to be set?
         masks = process_mask(protos=masks[0], 
-                             masks_in=pred[:, 6:], 
-                             bboxes=pred[:, :4], 
+                             masks_in=preds[:, 6:], 
+                             bboxes=preds[:, :4], 
                              shape=(self.orig_shape[0], self.orig_shape[1]), 
                              upsample=True)
-        
-        return pred, masks
+        inst_msg = Detection2DArrayMask()
+        detection = Detection2D() 
+        detection_array = Detection2DArray()
+        bbox = BoundingBox2D()
+        obj = ObjectHypothesisWithPose()
+        for i, mask in zip(range(preds.shape[0]), masks):
+            bbox = BoundingBox2D()
+            bbox.center.position.x = preds[i, 0].item()
+            bbox.center.position.y = preds[i, 1].item()
+            bbox.size_x = preds[i, 2].item()
+            bbox.size_y = preds[i, 3].item()
+            obj = ObjectHypothesisWithPose()
+            obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
+            obj.hypothesis.score = preds[i, 4].item()
+            detection.bbox = bbox
+            detection.results.append(obj) 
+            detection.id = str(0)
+            detection_array.detections.append(detection)
+            msg = Image()
+            msg.data = mask.numpy().tobytes()
+            msg.height = mask.shape[0]
+            msg.width = mask.shape[1]
+            msg.step = mask.shape[1]
+            inst_msg.masks.append(msg)
+            inst_msg.detections.append(detection_array)
+            self.publisher.publish(inst_msg)
 
 def main(args=None):
     rclpy.init(args=args)

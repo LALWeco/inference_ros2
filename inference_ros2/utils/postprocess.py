@@ -72,6 +72,15 @@ def xywh2xyxy(x):
     y[:, 3] = x[:, 1] + x[:, 3] / 2  # bottom right y
     return y
 
+def xyxy2xywh(x):
+    # Convert nx4 boxes from [x1, y1, x2, y2] to [x, y, w, h] where xy1=top-left, xy2=bottom-right
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[:, 0] = (x[:, 0] + x[:, 2]) / 2  # x center
+    y[:, 1] = (x[:, 1] + x[:, 3]) / 2  # y center
+    y[:, 2] = x[:, 2] - x[:, 0]  # width
+    y[:, 3] = x[:, 3] - x[:, 1]  # height
+    return y
+
 def process_mask(protos, masks_in, bboxes, shape, upsample=False):
     """
     Crop before upsample.
@@ -199,5 +208,5 @@ def non_max_suppression(
                 i = i[iou.sum(1) > 1]  # require redundancy
 
         output[xi] = x[i]
-
+        output[xi][:, :4] = xyxy2xywh(output[xi][:, :4])
     return output
