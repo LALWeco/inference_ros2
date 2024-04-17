@@ -3,7 +3,7 @@
 <package format="3">
   <name>inference_ros2</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>An inference module for ROS2 that subscribes to Image messages and publishes detections from a YOLOv7 Instance Segmentation model.</description>
   <maintainer email="naeemiqbal996@gmail.com">niqbal</maintainer>
   <license>TODO: License declaration</license>
 

@@ -4,6 +4,7 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 import imutils
+import os
 
 # message definitions
 from vision_msgs.msg import Detection2D, Detection2DArray, Detection2DArrayMask, BoundingBox2D, ObjectHypothesisWithPose, ObjectHypothesis
@@ -50,7 +51,8 @@ class CropDetector(Node):
     def init_model(self, mode='onnx'):
         """Initialize the model for inference"""
         if mode == 'onnx':
-            self.model_path = 'model/yolov7-instance-seg-cropweed.onnx'
+            self.model_path = os.path.join(os.path.abspath('.'),
+                                           'src/inference_ros2/model/yolov7-instance-seg-cropweed.onnx')
             self.exec_providers = rt.get_available_providers()
             self.exec_provider = ['CUDAExecutionProvider'] if 'CUDAExecutionProvider' in self.exec_providers else ['CPUExecutionProvider']
             self.session_options = rt.SessionOptions()
