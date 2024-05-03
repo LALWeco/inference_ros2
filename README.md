@@ -9,9 +9,9 @@ sudo apt install ros-foxy-ros1-bridge
 source /opt/ros/noetic/setup.bash 
 source /opt/ros/foxy/setup.bash 
 # Check all the bridge topic pairs
-ros2 run ros1_bridge dynamic_bridge--print-pairs 
+ros2 run ros1_bridge dynamic_bridge --print-pairs 
 # Run the ros1_bridge 
-ros2 run ros1_bridge dynamic_bridge--bridge-alltopics
+ros2 run ros1_bridge dynamic_bridge --bridge-alltopics
 ```
 
 Fetch dependencies before building package
