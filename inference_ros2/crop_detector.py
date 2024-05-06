@@ -44,8 +44,6 @@ class CropDetector(Node):
             outputs = self.model.run(None, {self.input_name: cv_image})
             if outputs is not None:
                 self.postprocess_image(outputs)
-            print('hold')
-            self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
             pass
         else:
