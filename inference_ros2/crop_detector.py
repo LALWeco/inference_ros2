@@ -41,7 +41,8 @@ class CropDetector(Node):
         # inference
         if self.inference_mode == 'onnx':
             outputs = self.model.run(None, {self.input_name: cv_image})
-            detections, masks = self.postprocess_image(outputs)
+            if outputs is not None:
+                self.postprocess_image(outputs)
             print('hold')
         elif self.inference_mode == 'tensorrt':
             pass
@@ -52,7 +53,7 @@ class CropDetector(Node):
         """Initialize the model for inference"""
         if mode == 'onnx':
             self.model_path = os.path.join(os.path.abspath('.'),
-                                           'src/inference_ros2/model/yolov7-instance-seg-cropweed.onnx')
+                    'model/best.onnx')
             self.exec_providers = rt.get_available_providers()
             self.exec_provider = ['CUDAExecutionProvider'] if 'CUDAExecutionProvider' in self.exec_providers else ['CPUExecutionProvider']
             self.session_options = rt.SessionOptions()
@@ -101,7 +102,6 @@ class CropDetector(Node):
                              upsample=True)
         inst_msg = Detection2DArrayMask()
         detection = Detection2D() 
-        detection_array = Detection2DArray()
         bbox = BoundingBox2D()
         obj = ObjectHypothesisWithPose()
         for i, mask in zip(range(preds.shape[0]), masks):
@@ -116,15 +116,14 @@ class CropDetector(Node):
             detection.bbox = bbox
             detection.results.append(obj) 
             detection.id = str(0)
-            detection_array.detections.append(detection)
+            inst_msg.detections.append(detection)
             msg = Image()
             msg.data = mask.numpy().tobytes()
             msg.height = mask.shape[0]
             msg.width = mask.shape[1]
             msg.step = mask.shape[1]
             inst_msg.masks.append(msg)
-            inst_msg.detections.append(detection_array)
-            self.publisher.publish(inst_msg)
+        self.publisher.publish(inst_msg)
 
 def main(args=None):
     rclpy.init(args=args)
