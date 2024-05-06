@@ -17,13 +17,14 @@ classes = ['crop', 'weed']
 from utils import non_max_suppression, process_mask
 class CropDetector(Node):
 
-    def __init__(self, mode='onnx'):
+    def __init__(self, mode='onnx', topic='/realsenseD435/color/image_raw/compressed'):
         super().__init__('CropDetector')
         self.subscription = self.create_subscription(
             CompressedImage,
-            '/realsenseD435/color/image_raw/compressed',
+            topic,
             self.listener_callback,
             10)
+        self.get_logger().info('Subscribing to {}'.format(topic))
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
         if self.inference_mode == 'onnx':
@@ -44,6 +45,7 @@ class CropDetector(Node):
             if outputs is not None:
                 self.postprocess_image(outputs)
             print('hold')
+            self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
             pass
         else:
@@ -94,36 +96,41 @@ class CropDetector(Node):
         """Postprocess the model output for publishing"""
         det = output[0]
         masks = output[4]
-        preds = non_max_suppression(prediction=det, conf_thres=0.50, iou_thres=0.45, nm=32)[0] #TODO nm dimension to be set?
-        masks = process_mask(protos=masks[0], 
-                             masks_in=preds[:, 6:], 
-                             bboxes=preds[:, :4], 
-                             shape=(self.orig_shape[0], self.orig_shape[1]), 
-                             upsample=True)
-        inst_msg = Detection2DArrayMask()
-        detection = Detection2D() 
-        bbox = BoundingBox2D()
-        obj = ObjectHypothesisWithPose()
-        for i, mask in zip(range(preds.shape[0]), masks):
-            bbox = BoundingBox2D()
-            bbox.center.position.x = preds[i, 0].item()
-            bbox.center.position.y = preds[i, 1].item()
-            bbox.size_x = preds[i, 2].item()
-            bbox.size_y = preds[i, 3].item()
+        preds = non_max_suppression(prediction=det, conf_thres=0.3, iou_thres=0.45, nm=32)[0] #TODO nm dimension to be set?
+        if len(preds) != 0:
+            masks = process_mask(protos=masks[0], 
+                                masks_in=preds[:, 6:], 
+                                bboxes=preds[:, :4], 
+                                shape=(self.orig_shape[0], self.orig_shape[1]), 
+                                upsample=True)
+            inst_msg = Detection2DArrayMask()
+            # detection_array = Detection2DArray()
             obj = ObjectHypothesisWithPose()
-            obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
-            obj.hypothesis.score = preds[i, 4].item()
-            detection.bbox = bbox
-            detection.results.append(obj) 
-            detection.id = str(0)
-            inst_msg.detections.append(detection)
-            msg = Image()
-            msg.data = mask.numpy().tobytes()
-            msg.height = mask.shape[0]
-            msg.width = mask.shape[1]
-            msg.step = mask.shape[1]
-            inst_msg.masks.append(msg)
-        self.publisher.publish(inst_msg)
+            for i, mask in zip(range(preds.shape[0]), masks):
+                bbox = BoundingBox2D()
+                detection = Detection2D() 
+                bbox.center.position.x = preds[i, 0].item()
+                bbox.center.position.y = preds[i, 1].item()
+                bbox.size_x = preds[i, 2].item()
+                bbox.size_y = preds[i, 3].item()
+                obj = ObjectHypothesisWithPose()
+                obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
+                obj.hypothesis.score = np.round(preds[i, 4].item(), 2)
+                detection.bbox = bbox
+                detection.results.append(obj) 
+                detection.id = str(0)                               # TODO add tracking IDs here. 
+                msg = Image()
+                msg.data = mask.numpy().astype(np.uint16).tobytes()  # TODO only 255 instances can be uniquely labelled here. 
+                msg.height = mask.shape[0]
+                msg.width = mask.shape[1]
+                msg.step = mask.shape[1]
+                msg.encoding = 'mono'
+                inst_msg.masks.append(msg)
+                inst_msg.detections.append(detection)
+            self.publisher.publish(inst_msg)
+        else:
+            inst_msg = Detection2DArrayMask()
+            self.publisher.publish(inst_msg)
 
 def main(args=None):
     rclpy.init(args=args)

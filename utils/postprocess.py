@@ -91,22 +91,24 @@ def process_mask(protos, masks_in, bboxes, shape, upsample=False):
 
     return: h, w, n
     """
+    if len(bboxes) == 0:
+        return torch.zeros(shape, dtype=torch.bool)
+    else:
+        c, mh, mw = protos.shape  # CHW
+        ih, iw = shape
+        protos = torch.tensor(protos, dtype=torch.float32)
+        masks = (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)  # CHW
 
-    c, mh, mw = protos.shape  # CHW
-    ih, iw = shape
-    protos = torch.tensor(protos, dtype=torch.float32)
-    masks = (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)  # CHW
+        downsampled_bboxes = bboxes.clone()
+        downsampled_bboxes[:, 0] *= mw / iw
+        downsampled_bboxes[:, 2] *= mw / iw
+        downsampled_bboxes[:, 3] *= mh / ih
+        downsampled_bboxes[:, 1] *= mh / ih
 
-    downsampled_bboxes = bboxes.clone()
-    downsampled_bboxes[:, 0] *= mw / iw
-    downsampled_bboxes[:, 2] *= mw / iw
-    downsampled_bboxes[:, 3] *= mh / ih
-    downsampled_bboxes[:, 1] *= mh / ih
-
-    masks = crop(masks, downsampled_bboxes)  # CHW
-    if upsample:
-        masks = F.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
-    return masks.gt_(0.5)
+        masks = crop(masks, downsampled_bboxes)  # CHW
+        if upsample:
+            masks = F.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
+        return masks.gt_(0.5)
 
 def non_max_suppression(
         prediction,
