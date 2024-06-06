@@ -34,11 +34,10 @@ ros2 run inference_ros2 keypoint_detector   # Keypoint detection
 ```
 
 # ToDo
-- [x] Define a ros2 package for Instance segmentation and Keypoint detection node
-- [x] Create a custom message definition for Keypoint-based detection
-    - [x] Bridge from ROS1 to ROS2
+- [x] Define a ros2 package for Instance segmentation and Keypoint detection node.
+- [x] Create a custom message definition for Keypoint-based detection.
+    - [x] Bridge from ROS1 to ROS2. 
 - [x] Import ONNX model and publisher of messages.
 - [ ] Import TensorRT model and infer with varying bit depth. 
 - [ ] Add a visualization flag for debugging.
   - [ ] A subscriber node for visualizing messages for Instance segmentation and Keypoint detection.
-
