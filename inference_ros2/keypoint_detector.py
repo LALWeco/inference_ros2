@@ -7,18 +7,20 @@ import imutils
 import os
 
 # message definitions
-from vision_msgs.msg import Detection2D, Detection2DArray, Detection2DArrayMask, BoundingBox2D, ObjectHypothesisWithPose, ObjectHypothesis
-from sensor_msgs.msg import CompressedImage, Image
+from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
+from vision_msgs.msg import Keypoint2DArray, Keypoint2D
+from sensor_msgs.msg import CompressedImage
 
 # inference imports
 import onnxruntime as rt
 
-classes = ['crop', 'weed']
-from utils import non_max_suppression, process_mask
-class CropDetector(Node):
+classes = ['background', 'crop', 'weed']
+kpt_shape = (1,3)
+from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot
+class CropKeypointDetector(Node):
 
     def __init__(self, mode='onnx', topic='/realsenseD435/color/image_raw/compressed'):
-        super().__init__('CropDetector')
+        super().__init__('CropKeypointDetector')
         self.subscription = self.create_subscription(
             CompressedImage,
             topic,
@@ -34,14 +36,14 @@ class CropDetector(Node):
         else:   
             raise ValueError('Invalid mode. Choose either onnx or tensorrt')
         
-        self.publisher = self.create_publisher(Detection2DArrayMask, '/cropweed/instance_seg', 10)
+        self.publisher = self.create_publisher(Keypoint2DArray, '/cropweed/keypoint_detection', 10)
 
     def listener_callback(self, msg):
-        cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
-        cv_image = self.preprocess_image(cv_image)
+        self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
+        self.cv_image = self.preprocess_image(self.cv_image)
         # inference
         if self.inference_mode == 'onnx':
-            outputs = self.model.run(None, {self.input_name: cv_image})
+            outputs = self.model.run(None, {self.input_name: self.cv_image})
             if outputs is not None:
                 self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
@@ -53,11 +55,11 @@ class CropDetector(Node):
         """Initialize the model for inference"""
         if mode == 'onnx':
             self.model_path = os.path.join(os.path.abspath('.'),
-                    'model/best.onnx')
+                    'src/inference_ros2/model/yolov8-keypoint-det-cropweed.onnx')
             self.exec_providers = rt.get_available_providers()
             self.exec_provider = ['CUDAExecutionProvider'] if 'CUDAExecutionProvider' in self.exec_providers else ['CPUExecutionProvider']
             self.session_options = rt.SessionOptions()
-            # TODO add more session options
+            # TODO add more session optionss
             self.get_logger().info('Using {} for inference'.format(self.exec_provider))
             self.model = rt.InferenceSession(self.model_path, 
                                              sess_options=self.session_options,
@@ -74,6 +76,7 @@ class CropDetector(Node):
         b, c, h, w = self.model.get_inputs()[0].shape
         self.input_name = self.model.get_inputs()[0].name
         self.input_dtype = self.model.get_inputs()[0].type
+        self.input_shape = h, w
         assert c == 3
         img_0 = np.zeros((h, w, 3), dtype=np.float32)
         image = imutils.resize(image, width=w)
@@ -93,18 +96,19 @@ class CropDetector(Node):
     def postprocess_image(self, output):
         """Postprocess the model output for publishing"""
         det = output[0]
-        masks = output[4]
-        preds = non_max_suppression(prediction=det, conf_thres=0.3, iou_thres=0.45, nm=32)[0] #TODO nm dimension to be set?
-        if len(preds) != 0:
-            masks = process_mask(protos=masks[0], 
-                                masks_in=preds[:, 6:], 
-                                bboxes=preds[:, :4], 
-                                shape=(self.orig_shape[0], self.orig_shape[1]), 
-                                upsample=True)
-            inst_msg = Detection2DArrayMask()
-            # detection_array = Detection2DArray()
+        preds = non_max_suppression_v8(prediction=det, 
+                                       conf_thres=0.8, 
+                                       iou_thres=0.7,
+                                       multi_label=True, 
+                                       nc=len(classes))[0] 
+        preds[:, :4] = scale_boxes(self.input_shape, preds[:, :4], self.orig_shape)
+        pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
+        pred_kpts = scale_coords(self.input_shape, pred_kpts, self.orig_shape)
+        # plot(preds, pred_kpts, self.cv_image)
+        if preds.shape[0] != 0:
+            keypoint_msg = Keypoint2DArray()
             obj = ObjectHypothesisWithPose()
-            for i, mask in zip(range(preds.shape[0]), masks):
+            for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
                 bbox = BoundingBox2D()
                 detection = Detection2D() 
                 bbox.center.position.x = preds[i, 0].item()
@@ -117,22 +121,20 @@ class CropDetector(Node):
                 detection.bbox = bbox
                 detection.results.append(obj) 
                 detection.id = str(0)                               # TODO add tracking IDs here. 
-                msg = Image()
-                msg.data = mask.numpy().astype(np.uint16).tobytes()  # TODO only 255 instances can be uniquely labelled here. 
-                msg.height = mask.shape[0]
-                msg.width = mask.shape[1]
-                msg.step = mask.shape[1]
-                msg.encoding = 'mono'
-                inst_msg.masks.append(msg)
-                inst_msg.detections.append(detection)
-            self.publisher.publish(inst_msg)
+                keypoint = Keypoint2D()
+                keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
+                keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
+                keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
+                keypoint_msg.keypoints.append(keypoint)
+                keypoint_msg.detections.append(detection)
+            self.publisher.publish(keypoint_msg)
         else:
-            inst_msg = Detection2DArrayMask()
-            self.publisher.publish(inst_msg)
+            keypoint_msg = Keypoint2DArray()
+            self.publisher.publish(keypoint_msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = CropDetector()
+    subscriber = CropKeypointDetector()
     rclpy.spin(subscriber)
     subscriber.destroy_node()
     rclpy.shutdown()

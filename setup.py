@@ -15,12 +15,13 @@ setup(
     zip_safe=True,
     maintainer='niqbal',
     maintainer_email='naeemiqbal996@gmail.com',
-    description='An inference module for ROS2 that subscribes to Image messages and publishes detections from a YOLOv7 Instance Segmentation model.', 
+    description='An inference module for ROS2 that subscribes to Image messages and publishes detections from a YOLOv7/v8 Instance Segmentation model.', 
     license='MIT License',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'crop_detector = inference_ros2.crop_detector:main'
+            'instance_detector = inference_ros2.instance_detector:main',
+            'keypoint_detector = inference_ros2.keypoint_detector:main'
         ],
     },
 )
