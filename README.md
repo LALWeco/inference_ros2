@@ -29,13 +29,16 @@ cd ~/ros2_ws
 source /opt/ros/foxy/setup.bash
 colcon build --packages-select inference_ros2 vision_msgs
 source install/setup.bash
-ros2 run inference_ros2 crop_detector
+ros2 run inference_ros2 instance_detector   # Instance segmentation
+ros2 run inference_ros2 keypoint_detector   # Keypoint detection
 ```
 
 # ToDo
-- [x] Define a basic ros2 package for crop_detector node
-- [ ] Create a custom message definition for Keypoint-based detection
-    - [ ] Variable keypoint detection [Interesting discussion](https://github.com/ultralytics/ultralytics/issues/5364)
-    - [ ] Bridge from ROS1 to ROS2 (Optional?)
-- [ ] Import ONNX model and publisher of messages
+- [x] Define a ros2 package for Instance segmentation and Keypoint detection node
+- [x] Create a custom message definition for Keypoint-based detection
+    - [x] Bridge from ROS1 to ROS2
+- [x] Import ONNX model and publisher of messages.
+- [ ] Import TensorRT model and infer with varying bit depth. 
+- [ ] Add a visualization flag for debugging.
+  - [ ] A subscriber node for visualizing messages for Instance segmentation and Keypoint detection.
 
