@@ -9,7 +9,7 @@ import os
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
 from vision_msgs.msg import Keypoint2DArray, Keypoint2D
-from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import CompressedImage, Image
 
 # inference imports
 import onnxruntime as rt
@@ -21,29 +21,37 @@ class CropKeypointDetector(Node):
 
     def __init__(self, mode='onnx', topic='/realsenseD435/color/image_raw/compressed'):
         super().__init__('CropKeypointDetector')
-        self.subscription = self.create_subscription(
-            CompressedImage,
-            topic,
-            self.listener_callback,
-            10)
+        if 'compressed' in topic:
+            self.compressed = True
+            self.subscription = self.create_subscription(
+                CompressedImage,
+                topic,
+                self.listener_callback,
+                10)
+        else:
+            self.compressed = False
+            self.subscription = self.create_subscription(
+                Image,
+                topic,
+                self.listener_callback,
+                10)
         self.get_logger().info('Subscribing to {}'.format(topic))
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
-        if self.inference_mode == 'onnx':
-            self.init_model(mode=mode)
-        elif self.inference_mode == 'tensorrt':
-            pass
-        else:   
-            raise ValueError('Invalid mode. Choose either onnx or tensorrt')
-        
+        self.init_model(mode=self.inference_mode)
         self.publisher = self.create_publisher(Keypoint2DArray, '/cropweed/keypoint_detection', 10)
 
     def listener_callback(self, msg):
-        self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
-        self.cv_image = self.preprocess_image(self.cv_image)
+        if self.compressed:
+            self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
+        else:
+            self.cv_image = CvBridge().imgmsg_to_cv2(msg)
+        if self.cv_image.shape[2] != 3:
+            self.cv_image = self.cv_image[:,:, :3]
+        self.input_image = self.preprocess_image(self.cv_image)
         # inference
         if self.inference_mode == 'onnx':
-            outputs = self.model.run(None, {self.input_name: self.cv_image})
+            outputs = self.model.run(None, {self.input_name: self.input_image})
             if outputs is not None:
                 self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
@@ -80,10 +88,10 @@ class CropKeypointDetector(Node):
         assert c == 3
         img_0 = np.zeros((h, w, 3), dtype=np.float32)
         image = imutils.resize(image, width=w)
-        p_h, p_w = image.shape[0], image.shape[1]
+        self.p_h, self.p_w = image.shape[0], image.shape[1]
         img_0[0:image.shape[0], 0:image.shape[1], :] = image
         image = img_0.copy()
-        image = image.transpose(2, 0, 1)    # HWC to CHW
+        image = image.transpose(2, 0, 1)     # HWC to CHW
         # normalize the image
         image = image / 255.0
         # add batch dimension
@@ -97,13 +105,14 @@ class CropKeypointDetector(Node):
         """Postprocess the model output for publishing"""
         det = output[0]
         preds = non_max_suppression_v8(prediction=det, 
-                                       conf_thres=0.8, 
-                                       iou_thres=0.7,
-                                       multi_label=True, 
+                                       conf_thres=0.5, 
+                                       iou_thres=0.5,
+                                       max_det=200,
+                                    #    multi_label=True, 
                                        nc=len(classes))[0] 
-        preds[:, :4] = scale_boxes(self.input_shape, preds[:, :4], self.orig_shape)
+        preds[:, :4] = scale_boxes(preds[:, :4], (self.p_h, self.p_w), self.orig_shape, padded=True)
         pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
-        pred_kpts = scale_coords(self.input_shape, pred_kpts, self.orig_shape)
+        pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
         # plot(preds, pred_kpts, self.cv_image)
         if preds.shape[0] != 0:
             keypoint_msg = Keypoint2DArray()
@@ -134,7 +143,8 @@ class CropKeypointDetector(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = CropKeypointDetector()
+    # subscriber = CropKeypointDetector(topic='/zed/zed_node/rgb/image_rect_color')
+    subscriber = CropKeypointDetector(topic='/realsenseD435/color/image_raw/compressed')
     rclpy.spin(subscriber)
     subscriber.destroy_node()
     rclpy.shutdown()

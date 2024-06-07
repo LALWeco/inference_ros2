@@ -24,7 +24,6 @@ def box_iou(box1, box2, eps=1e-7):
     # IoU = inter / (area1 + area2 - inter)
     return inter / (box_area(box1.T)[:, None] + box_area(box2.T) - inter + eps)
 
-
 def box_area(box):
     # box = xyxy(4,n)
     return (box[2] - box[0]) * (box[3] - box[1])
@@ -346,37 +345,35 @@ def non_max_suppression_v8(
 
     return output
 
-def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding=True):
-    """
-    Rescales bounding boxes (in the format of xyxy) from the shape of the image they were originally specified in
-    (img1_shape) to the shape of a different image (img0_shape).
+def scale_boxes(box, source_dim=(512,512), orig_size=(760, 1280), padded=False):
+        '''
+        box: Bounding box generated for the model input size (e.g. 512 x 512) which was fed to the model. 
+        source_dim : The size of input image fed to the model. 
+        orig_size : The size of the input image fetched from the ROS publisher. 
+        padded: If True, source_dim must be changed to p_h, p_w of image i.e. the image dimensions without the padded dimensions. 
+        return: Scaled bounding box according to the input image from the ROS topic.
+        '''
+        # if padded:
+        #     xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
+        #                box[:, 2] * (orig_size[1] / source_dim[1])
+        #     ytl, ybr = box[:, 1] * (orig_size[0] / source_dim[0]), \
+        #                box[:, 3] * (orig_size[0] / source_dim[0])
+        # else:
+        #     xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
+        #                box[:, 2] * (orig_size[1] / source_dim[1])
+        #     ytl, ybr = box[:, 1] * orig_size[0] / self.input_size[0], \
+        #                box[:, 3] * orig_size[0] / self.input_size[0]
+        xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
+                       box[:, 2] * (orig_size[1] / source_dim[1])
+        ytl, ybr = box[:, 1] * (orig_size[0] / source_dim[0]), \
+                    box[:, 3] * (orig_size[0] / source_dim[0])
+        xtl = np.reshape(xtl, (len(xtl), 1))
+        xbr = np.reshape(xbr, (len(xbr), 1))
 
-    Args:
-        img1_shape (tuple): The shape of the image that the bounding boxes are for, in the format of (height, width).
-        boxes (torch.Tensor): the bounding boxes of the objects in the image, in the format of (x1, y1, x2, y2)
-        img0_shape (tuple): the shape of the target image, in the format of (height, width).
-        ratio_pad (tuple): a tuple of (ratio, pad) for scaling the boxes. If not provided, the ratio and pad will be
-            calculated based on the size difference between the two images.
-        padding (bool): If True, assuming the boxes is based on image augmented by yolo style. If False then do regular
-            rescaling.
+        ytl = np.reshape(ytl, (len(ytl), 1))
+        ybr = np.reshape(ybr, (len(ybr), 1))
 
-    Returns:
-        boxes (torch.Tensor): The scaled bounding boxes, in the format of (x1, y1, x2, y2)
-    """
-    if ratio_pad is None:  # calculate from img0_shape
-        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-        pad = round((img1_shape[1] - img0_shape[1] * gain) / 2 - 0.1), round(
-            (img1_shape[0] - img0_shape[0] * gain) / 2 - 0.1)  # wh padding
-    else:
-        gain = ratio_pad[0][0]
-        pad = ratio_pad[1]
-
-    if padding:
-        boxes[..., [0, 2]] -= pad[0]  # x padding
-        boxes[..., [1, 3]] -= pad[1]  # y padding
-    boxes[..., :4] /= gain
-    clip_boxes(boxes, img0_shape)
-    return boxes
+        return torch.concatenate((xtl, ytl, xbr, ybr), axis=1)
 
 def clip_boxes(boxes, shape):
     """
@@ -457,7 +454,7 @@ def plot_boxes(boxes, cv_image):
     boxes = xywh2xyxy(boxes)
     for obj in range(boxes.shape[0]):  
         box = boxes[obj, :]   
-        if boxes[obj, 5] == 1:
+        if boxes[obj, 5] == 2:
             color = (0, 0, 255)
         else:
             color = (255, 0, 0)
@@ -476,12 +473,13 @@ def plot_boxes(boxes, cv_image):
     return cv_image
 
 def plot_kpts(kpts, cv_image):
+    kpts = np.reshape(kpts, (kpts.shape[0], kpts.shape[2]))
     nkpt, ndim = kpts.shape
     is_pose = nkpt == 17 and ndim == 3
     radius = 5
-    kpt_line &= is_pose  # `kpt_line=True` for now only supports human pose plotting
+    # kpt_line &= is_pose  # `kpt_line=True` for now only supports human pose plotting
     for i, k in enumerate(kpts):
-        color_k = (255, 56, 56)
+        color_k = (255, 0, 0)
         x_coord, y_coord = k[0], k[1]
         # if x_coord % shape[1] != 0 and y_coord % shape[0] != 0:
         if len(k) == 3:
