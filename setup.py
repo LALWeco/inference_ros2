@@ -1,5 +1,7 @@
+import os
 from setuptools import setup
 from setuptools import find_packages
+from glob import glob
 package_name = 'inference_ros2'
 
 setup(
@@ -10,6 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.[pxy][yma]*')))
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,7 +24,8 @@ setup(
     entry_points={
         'console_scripts': [
             'instance_detector = inference_ros2.instance_detector:main',
-            'keypoint_detector = inference_ros2.keypoint_detector:main'
+            'keypoint_detector = inference_ros2.keypoint_detector:main',
+            'bbox_detector = inference_ros2.object_detector:main'
         ],
     },
 )

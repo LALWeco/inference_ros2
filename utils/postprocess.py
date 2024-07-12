@@ -444,32 +444,84 @@ def clip_coords(coords, shape):
         coords[..., 0] = coords[..., 0].clip(0, shape[1])  # x
         coords[..., 1] = coords[..., 1].clip(0, shape[0])  # y
 
-def plot(boxes, keypoints, cv_image):
-    cv_image = plot_boxes(boxes, cv_image) 
-    cv_image = plot_kpts(keypoints, cv_image)                 
-    cv2.imshow('prediction', cv_image)
-    cv2.waitKey(0)
+def plot(boxes, keypoints, cv_image, mode='track'):
+    cv_image = plot_boxes(boxes, cv_image, mode=mode) 
+    if keypoints is not None:
+        cv_image = plot_kpts(keypoints, cv_image)                 
+    return cv_image
+    # cv2.imshow('prediction', cv_image)
+    # cv2.waitKey(1)
 
-def plot_boxes(boxes, cv_image):
-    boxes = xywh2xyxy(boxes)
-    for obj in range(boxes.shape[0]):  
-        box = boxes[obj, :]   
-        if boxes[obj, 5] == 2:
+def plot_boxes(boxes, cv_image, mode='det'):
+    """
+    boxes : [xtl, ytl, xbr, ybr] 
+    cv_image : cv image in HWC format on which cv functions can operate. 
+    mode = 'det' or 'track'
+    """
+    if mode=='track':
+        tracks = boxes.copy()
+        boxes = np.array([track.tlbr for track in boxes])
+        # boxes = xywh2xyxy(boxes)
+        for box_idx in range(boxes.shape[0]):  
+            box = boxes[box_idx, :]
+            # if tracklet.score < 1.0:
+            #     color = (0, 0, 255)
+            # else:
+            #     color = (255, 0, 0)
             color = (0, 0, 255)
-        else:
-            color = (255, 0, 0)
-        cv2.rectangle(cv_image,
-                      pt1=(int(box[0]), int(box[1])),
-                      pt2=(int(box[2]), int(box[3])),
-                      color=color,
-                      thickness=2)
-        # cv2.putText(cv_image,
-        #             '{:.2f} {}'.format(filtered[2][obj], self.class_ids[filtered[1][obj]]),
-        #             org=(int(box[0]), int(box[1] - 10)),
-        #             fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-        #             fontScale=0.5,
-        #             thickness=2,
-        #             color=color)
+            text = '{} {}'.format('canola', int(tracks[box_idx].track_id)) # TODO dynamically assign classes in a multi class scenarios
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+            cv2.rectangle(cv_image, 
+                        pt1=(int(box[0]), int(box[1] - 25)),
+                        pt2=(int(box[0] + tw), int(box[1])),
+                        color=color, 
+                        thickness=-1) # solid background rectangle
+            cv2.rectangle(cv_image,
+                        pt1=(int(box[0]), int(box[1])),
+                        pt2=(int(box[2]), int(box[3])),
+                        color=color,
+                        thickness=2)
+            cv2.putText(cv_image,
+                        text,
+                        org=(int(box[0]), int(box[1] - 5)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=0.9,
+                        thickness=2,
+                        color=(255, 255, 255))
+    else:
+        # boxes = xywh2xyxy(boxes)
+        color = (255, 0, 0)
+        for obj in range(boxes.shape[0]):  
+            box = boxes[obj, :]   
+            # if boxes[obj, 5] == 2:
+            #     color = (0, 0, 255)
+            # else:
+            #     color = (255, 0, 0)
+            cv2.rectangle(cv_image,
+                        pt1=(int(box[0]), int(box[1])),
+                        pt2=(int(box[2]), int(box[3])),
+                        color=color,
+                        thickness=2)
+            text = '{} {:.2f}'.format('canola', box[4].item()) # TODO dynamically assign classes in a multi class scenarios
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
+            cv2.rectangle(cv_image, 
+                        pt1=(int(box[0]), int(box[1] - 25)),
+                        pt2=(int(box[0] + tw), int(box[1])),
+                        color=color, 
+                        thickness=-1) # solid background rectangle
+            cv2.rectangle(cv_image,
+                        pt1=(int(box[0]), int(box[1])),
+                        pt2=(int(box[2]), int(box[3])),
+                        color=color,
+                        thickness=2)
+            cv2.putText(cv_image,
+                        text,
+                        org=(int(box[0]), int(box[1] - 5)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=0.9,
+                        thickness=2,
+                        color=(255, 255, 255))
+            
     return cv_image
 
 def plot_kpts(kpts, cv_image):
