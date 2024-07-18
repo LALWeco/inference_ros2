@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/tensorrt:22.12-py3
+FROM nvcr.io/nvidia/ubuntu:20.04
 
 WORKDIR /ros2_ws/src/inference_ros2
 COPY . /ros2_ws/src/inference_ros2
