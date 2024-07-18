@@ -3,7 +3,7 @@
 The repository has been tested with Ubuntu20.04 and ROS 2 Foxy. 
 
 Build the image
-````bash
+```bash
 cd <root director of this repo>
 sudo -H DOCKER_BUILDKIT=1 docker build -f docker/amd64/Dockerfile -t niqbal996/inference_ros2:23.04-foxy-py3 .
 ```
