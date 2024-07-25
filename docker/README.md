@@ -11,4 +11,3 @@ Run the container
 ```bash
 docker run -it --runtime=nvidia --net=host -v/home/niqbal/ros2_ws:/root/ros2_ws -v/home/niqbal/git/aa_detectors:/opt/workspace/ -v /dev/shm:/dev/shm --name=infer_ros2 niqbal996/inference_ros2:23.04-foxy-py3
 ```
-
