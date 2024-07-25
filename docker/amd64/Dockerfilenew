@@ -1,0 +1,55 @@
+FROM ubuntu:20.04
+
+WORKDIR /ros2_ws/src/inference_ros2
+COPY . /ros2_ws/src/inference_ros2
+USER root
+SHELL ["/bin/bash", "-c"]
+
+# Removed the incorrect INSTALL comment and replaced with a more descriptive comment
+# Splitting the RUN command into smaller parts for better error handling and debugging
+# Added -qq to apt-get update for quieter output, focusing on errors
+
+# Remove the automatic removal of downloaded packages
+RUN rm -f /etc/apt/apt.conf.d/docker-clean
+
+# Update and install necessary packages one step at a time
+RUN apt-get update -qq && apt-get install -y wget software-properties-common gnupg2 curl
+RUN apt-get install -y ffmpeg libsm6 libxext6
+
+# Add repositories
+RUN apt-add-repository universe && apt-add-repository multiverse && apt-add-repository restricted
+
+# Install Python tools and libraries
+RUN apt-get update -qq && apt-get install -y python3-pip python3-dev
+RUN python3 -m pip install --upgrade pip
+
+# Clean up unnecessary packages
+RUN apt-get autoremove -y
+
+# Run pip install using the download cache
+RUN --mount=type=cache,target=/root/.cache \
+    python3 -m pip install onnxruntime-gpu imutils opencv-python opencv-contrib-python torchvision==0.14.1 torch==1.13.1
+
+# Locale setup
+RUN apt-get update -qq && apt-get install -y locales && \
+    locale-gen en_US en_US.UTF-8 && \
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
+    LANG=en_US.UTF-8
+
+# Install ROS and use the download cache
+# Commented out the old ROS installation commands and updated the installation process
+RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    add-apt-repository universe && \
+    apt-get update -qq && \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
+    apt-get update -qq && \
+    apt-get upgrade -y && \
+    apt-get install -y ros-foxy-desktop ros-dev-tools python3-argcomplete && \
+    apt-get install -y qtbase5-dev qtdeclarative5-dev && \
+    apt-get autoremove -y && \
+    echo "source /opt/ros/foxy/setup.bash" >> ~/.bashrc
+
+ENTRYPOINT ["/workspace/ros_5g/docker/amd64/entrypoint.sh"]

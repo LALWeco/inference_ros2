@@ -1,10 +1,10 @@
-FROM nvcr.io/nvidia/tensorrt:22.12-py3
+FROM ubuntu:20.04
 
 WORKDIR /ros2_ws/src/inference_ros2
 COPY . /ros2_ws/src/inference_ros2
 USER root
 SHELL ["/bin/bash", "-c"]
-# Install python dependencies
+# INSTALL python dependencies
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
@@ -29,14 +29,14 @@ RUN apt update && apt install locales && \
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
-#     # sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' && \
-#     # apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 && \
-#     # apt-get update && \
-#     # apt-get install -y ros-noetic-ros-base && \
-#     # apt install -y python3-rosdep python3-wstool build-essential  && \
-#     # apt install -y python3-rospkg && \
-#     # apt install -y ros-noetic-rostopic ros-noetic-rospy ros-noetic-roslaunch ros-noetic-sensor-msgs && \
-#     # apt install -y python3-rosdep && rosdep init && rosdep update && \
+    # sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' && \
+    # apt-key adv --keyserver 'hkp://keyserver.ubuntu.com:80' --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654 && \
+    # apt-get update && \
+    # apt-get install -y ros-noetic-ros-base && \
+    # apt install -y python3-rosdep python3-wstool build-essential  && \
+    # apt install -y python3-rospkg && \
+    # apt install -y ros-noetic-rostopic ros-noetic-rospy ros-noetic-roslaunch ros-noetic-sensor-msgs && \
+    # apt install -y python3-rosdep && rosdep init && rosdep update && \
     add-apt-repository universe  && \
     apt update && \
     curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
@@ -48,4 +48,4 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     apt autoremove && \
     echo "source /opt/ros/foxy/setup.bash" >> ~/.bashrc
 
-# ENTRYPOINT ["/workspace/ros_5g/docker/amd64/entrypoint.sh"]
+ENTRYPOINT ["/workspace/ros_5g/docker/amd64/entrypoint.sh"]
