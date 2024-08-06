@@ -1,4 +1,25 @@
 import pycuda.driver as cuda
+import tensorrt as trt
+import rclpy
+from rclpy.node import Node
+
+class TrtLogger(trt.ILogger):
+    def __init__(self, ros_node):
+        super().__init__()
+        self.ros_node = ros_node
+
+    def log(self, severity, msg):
+        if severity == trt.Logger.VERBOSE:
+            self.ros_node.get_logger().debug(msg)
+        elif severity == trt.Logger.INFO:
+            self.ros_node.get_logger().info(msg)
+        elif severity == trt.Logger.WARNING:
+            self.ros_node.get_logger().warn(msg)
+        elif severity == trt.Logger.ERROR:
+            self.ros_node.get_logger().error(msg)
+        elif severity == trt.Logger.INTERNAL_ERROR:
+            self.ros_node.get_logger().fatal(msg)
+
 class HostDeviceMem(object):
     def __init__(self, host_mem, device_mem):
         self.host = host_mem

@@ -63,7 +63,7 @@ class CropKeypointDetector(Node):
         """Initialize the model for inference"""
         if mode == 'onnx':
             self.model_path = os.path.join(os.path.abspath('.'),
-                    'src/inference_ros2/model/yolov8-keypoint-det-cropweed.onnx')
+                    'model/best-opset16.onnx')
             self.exec_providers = rt.get_available_providers()
             self.exec_provider = ['CUDAExecutionProvider'] if 'CUDAExecutionProvider' in self.exec_providers else ['CPUExecutionProvider']
             self.session_options = rt.SessionOptions()

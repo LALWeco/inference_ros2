@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 import imutils
 import os
+import signal
+import sys
 
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
@@ -13,11 +15,12 @@ from sensor_msgs.msg import CompressedImage, Image
 
 import tensorrt as trt
 import pycuda.driver as cuda
-from utils.trt_utils import HostDeviceMem, _cuda_error_check
+from utils.trt_utils import HostDeviceMem, _cuda_error_check, TrtLogger
+from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot
+
 
 classes = ['background', 'crop', 'weed']
 kpt_shape = (1,3)
-from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot
 
 class CropKeypointDetector(Node):
 
@@ -38,11 +41,18 @@ class CropKeypointDetector(Node):
                 self.listener_callback,
                 10)
         self.get_logger().info('Subscribing to {}'.format(topic))
+        self.trt_logger = TrtLogger(self)
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
+        # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden. 
+        self.trt_context = None 
         self.init_model(mode=mode)
         self.publisher = self.create_publisher(Keypoint2DArray, '/cropweed/keypoint_detection', 10)
 
+    def get_logger(self):
+        # Override get_logger to use ROS 2 logger
+        return super().get_logger()
+    
     def listener_callback(self, msg):
         if self.compressed:
             self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
@@ -57,68 +67,69 @@ class CropKeypointDetector(Node):
             if outputs is not None:
                 self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
-            pass
+            try:
+                outputs = self.infer_trt(self.input_image)
+                if outputs is not None:
+                    self.postprocess_image(outputs)
+            except KeyboardInterrupt:
+                self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
+                self.cuda_ctx.pop()
         else:
             raise ValueError('Invalid mode. Choose either onnx or tensorrt')
 
     def init_model(self, mode='onnx'):
         """Initialize the model for inference"""
-        if self.inference_mode == 'onnx':
-            import onnxruntime as rt
-            self.model_path = os.path.join(os.path.abspath('.'),
-                    'model/yolov8-keypoint-det-cropweed.onnx')
-            self.exec_providers = rt.get_available_providers()
-            self.exec_provider = ['CUDAExecutionProvider'] if 'CUDAExecutionProvider' in self.exec_providers else ['CPUExecutionProvider']
-            self.session_options = rt.SessionOptions()
-            # TODO add more session optionss
-            self.get_logger().info('Using {} for inference'.format(self.exec_provider))
-            self.model = rt.InferenceSession(self.model_path, 
-                                             sess_options=self.session_options,
-                                             providers=self.exec_provider)
-            assert self.model 
-            self.get_logger().info('Model loaded successfully in ONNX format')
-        elif self.inference_mode == 'tensorrt':
-            cuda.init()
-            self.device = cuda.Device(0)
-            self.cuda_ctx = self.device.make_context()
-            self.engine_path = 'model/yolov7-instance-seg-cropweed.engine'
-            self.logger = trt.Logger(trt.Logger.ERROR)
-            self.runtime = trt.Runtime(self.logger)
-            trt.init_libnvinfer_plugins(None, "")   
-            assert os.path.exists(self.engine_path)          
-            with open(self.engine_path, "rb") as f:
-                engine_data = f.read()
-            self.engine = self.runtime.deserialize_cuda_engine(engine_data)
+        cuda.init()
+        self.device = cuda.Device(0)
+        self.cuda_ctx = self.device.make_context()
+        self.engine_path = os.path.join('/root/ros2_ws/src/inference_ros2/model/yolov8_trt_23.10_fp32.engine')
+        # self.logger = trt.Logger(self.trt_logger)
+        self.runtime = trt.Runtime(self.trt_logger)
+        trt.init_libnvinfer_plugins(None, "")   
+        assert os.path.exists(self.engine_path)          
+        with open(self.engine_path, "rb") as f:
+            engine_data = f.read()
+        self.engine = self.runtime.deserialize_cuda_engine(engine_data)
+        if 'fp32' in self.engine_path:
             self.dtype = np.float32
-            self.confidence = 0.5
-            self.batch_size = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-            trt.init_libnvinfer_plugins(self.logger, namespace="")
-            self.context = self.engine.create_execution_context()
-            assert self.engine
-            assert self.context
-            self.setup_IO_binding()
+        elif 'fp16' in self.engine_path:
+            self.dtype = np.float16
+        elif 'int8' in self.engine_path:
+            self.dtype = np.int8
+        else:
+            self.dtype = np.float32
+        self.confidence = 0.5
+        self.batch_size = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        trt.init_libnvinfer_plugins(self.trt_logger, namespace="")
+        self.trt_context = self.engine.create_execution_context()
+        assert self.engine
+        assert self.trt_context
+        self.setup_IO_binding()
     
+    def infer_trt(self, input_image: np.ndarray):
+        '''
+            input_image: A numpy array that is contiguous, preprocessed and in the data type expected by the self.data_type variable 
+        '''
+        self.input_image = self.input_image.ravel()
+        # NOTE! Copy current image to the host buffer i.e. self.input.host
+        np.copyto(self.input.host, self.input_image)
+        # Process I/O and execute the network.
+        self.cuda_ctx.push()
+        # Copy current image from host to device memory ----> part of IO operations
+        cuda.memcpy_htod_async(self.input.device, self.input.host, self.stream)
+        # t2 = time.time()
+        # io_time = round((t2-t1)*1000, 2)
+        err = self.trt_context.execute_async_v2(bindings=self.bindings, stream_handle=self.stream.handle)
+        # err = self.trt_context.execute_v2(bindings=self.bindings)
+        self.cuda_ctx.pop()
+        predictions = []
+        for out in self.outputs:
+            cuda.memcpy_dtoh_async(out.host, out.device, self.stream)
+            # out.host = out.host.reshape()
+            predictions.append(out.host.reshape(self.output_shape))
+        self.stream.synchronize()
 
-    def build_engine_onnx(self, model_file):
-        def GiB(val):
-            return val * 1 << 30
-        builder = trt.Builder(self.logger)
-        network = builder.create_network(0)
-        config = builder.create_builder_config()
-        parser = trt.OnnxParser(network, self.logger)
-
-        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, GiB(1))
-        # Load the Onnx model and parse it in order to populate the TensorRT network.
-        with open(model_file, "rb") as model:
-            if not parser.parse(model.read()):
-                print("ERROR: Failed to parse the ONNX file.")
-                for error in range(parser.num_errors):
-                    print(parser.get_error(error))
-                return None
-
-        engine_bytes = builder.build_serialized_network(network, config)
-        runtime = trt.Runtime(self.logger)
-        return runtime.deserialize_cuda_engine(engine_bytes)
+        return predictions
 
     def setup_IO_binding(self):
         # Setup I/O bindings
@@ -145,60 +156,38 @@ class CropKeypointDetector(Node):
             if self.engine.get_tensor_mode(binding_name).name=='INPUT':
                 self.input = HostDeviceMem(host_mem, device_mem)
                 # TODO Deprecated warning remove in future
-                self.context.set_binding_shape(i, [j for j in shape])
-                # self.context.set_input_shape(binding_name, [j for j in shape])
+                self.trt_context.set_binding_shape(i, [j for j in shape])
+                # self.trt_context.set_input_shape(binding_name, [j for j in shape])
             elif self.engine.get_tensor_mode(binding_name).name=='OUTPUT':
                 self.outputs.append(HostDeviceMem(host_mem, device_mem))
-                self.context.set_binding_shape(i, [j for j in shape])
+                self.trt_context.set_binding_shape(i, [j for j in shape])
                 # TODO Deprecated warning remove in future
-                # self.context.set_input_shape(binding_name, [j for j in shape])
+                # self.trt_context.set_input_shape(binding_name, [j for j in shape])
                 self.output_shape = shape
             else:
                 pass
 
-        # print(self.context.all_binding_shapes_specified)
+        # print(self.trt_context.all_binding_shapes_specified)
         self.stream = cuda.Stream()
         assert len(self.outputs) > 0
         assert len(self.bindings) > 0
 
     def preprocess_image(self, image):
         """Preprocess the image for inference"""
-        if self.inference_mode == 'onnx':
-            self.orig_shape = image.shape
-            # resize and pad to square the resolution
-            b, c, h, w = self.model.get_inputs()[0].shape
-            self.input_name = self.model.get_inputs()[0].name
-            self.input_dtype = self.model.get_inputs()[0].type
-            self.input_shape = h, w
-            assert c == 3
-            img_0 = np.zeros((h, w, 3), dtype=np.float32)
-            image = imutils.resize(image, width=w)
-            self.p_h, self.p_w = image.shape[0], image.shape[1]
-            img_0[0:image.shape[0], 0:image.shape[1], :] = image
-            image = img_0.copy()
-            image = image.transpose(2, 0, 1)     # HWC to CHW
-            # normalize the image
-            image = image / 255.0
-            # add batch dimension
-            image = np.expand_dims(image, axis=0)   # BCHW
-            if self.input_dtype == 'tensor(float)':
-                image = image.astype(np.float32)
-            assert image.shape == (b, c, h, w)
-        elif self.inference_mode == 'tensorrt':
-            self.orig_shape = image.shape
-            # resize and pad to square the resolution
-            b, c, h, w = self.model.get_inputs()[0].shape
-            img_0 = np.zeros((h, w, 3), dtype=np.float32)
-            image = imutils.resize(image, width=w)
-            self.p_h, self.p_w = image.shape[0], image.shape[1]
-            img_0[0:image.shape[0], 0:image.shape[1], :] = image
-            image = img_0.copy()
-            image = image.transpose(2, 0, 1)     # HWC to CHW
-            # normalize the image
-            image = image / 255.0
-            # add batch dimension
-            image = np.expand_dims(image, axis=0)   # BCHW
-            image = np.ascontiguousarray(self.in_tensor.astype(np.dtype(self.dtype))).ravel()
+        self.orig_shape = image.shape
+        # resize and pad to square the resolution
+        b, c, h, w = self.input_shape
+        img_0 = np.zeros((h, w, 3), dtype=np.float32)
+        image = imutils.resize(image, width=w)
+        self.p_h, self.p_w = image.shape[0], image.shape[1]
+        img_0[0:image.shape[0], 0:image.shape[1], :] = image
+        image = img_0.copy()
+        image = image.transpose(2, 0, 1)     # HWC to CHW
+        # normalize the image
+        image = image / 255.0
+        # add batch dimension
+        image = np.expand_dims(image, axis=0)   # BCHW
+        image = np.ascontiguousarray(image.astype(np.dtype(self.dtype))).ravel()
         return image
     
     def postprocess_image(self, output):
@@ -213,7 +202,7 @@ class CropKeypointDetector(Node):
         preds[:, :4] = scale_boxes(preds[:, :4], (self.p_h, self.p_w), self.orig_shape, padded=True)
         pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
-        plot(preds, pred_kpts, self.cv_image)
+        # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
         if preds.shape[0] != 0:
             keypoint_msg = Keypoint2DArray()
             obj = ObjectHypothesisWithPose()
@@ -243,8 +232,7 @@ class CropKeypointDetector(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    # subscriber = CropKeypointDetector(topic='/zed/zed_node/rgb/image_rect_color')
-    subscriber = CropKeypointDetector(topic='/realsenseD435/color/image_raw/compressed', mode='tensorrt')
+    subscriber = CropKeypointDetector(topic='/zed/zed_node/rgb/image_rect_color', mode='tensorrt')
     rclpy.spin(subscriber)
     subscriber.destroy_node()
     rclpy.shutdown()
