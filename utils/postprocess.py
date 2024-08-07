@@ -63,7 +63,7 @@ def process_mask_upsample(protos, masks_in, bboxes, shape):
     return masks.gt_(0.5)
 
 def xywh2xyxy(x):
-    # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
+    # Convert nx4 boxes from [cx, cy, w, h] to [xtl, ytl, xbr, ybr] where tl=top-left, br=bottom-right
     y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
     y[:, 0] = x[:, 0] - x[:, 2] / 2  # top left x
     y[:, 1] = x[:, 1] - x[:, 3] / 2  # top left y
@@ -72,13 +72,26 @@ def xywh2xyxy(x):
     return y
 
 def xyxy2xywh(x):
-    # Convert nx4 boxes from [x1, y1, x2, y2] to [x, y, w, h] where xy1=top-left, xy2=bottom-right
+    # Convert nx4 boxes from [x1, y1, x2, y2] to [cx, cy, w, h] where xy1=top-left, xy2=bottom-right
     y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
     y[:, 0] = (x[:, 0] + x[:, 2]) / 2  # x center
     y[:, 1] = (x[:, 1] + x[:, 3]) / 2  # y center
     y[:, 2] = x[:, 2] - x[:, 0]  # width
     y[:, 3] = x[:, 3] - x[:, 1]  # height
     return y
+
+# def cxcywh2xyxy(boxes):
+#     c_x = boxes[:, 0]
+#     c_y = boxes[:, 1]
+#     w = boxes[:, 2]
+#     h = boxes[:, 3]
+
+#     x_min = c_x - (w / 2)
+#     x_max = c_x + (w / 2)
+#     y_min = c_y - (h / 2)
+#     y_max = c_y + (h / 2)
+
+#     return torch.concatenate((x_min[:,None], y_min[:,None], x_max[:,None], y_max[:,None], boxes[:, 4:]), axis=1)
 
 def process_mask(protos, masks_in, bboxes, shape, upsample=False):
     """
@@ -375,6 +388,53 @@ def scale_boxes(box, source_dim=(512,512), orig_size=(760, 1280), padded=False):
 
         return torch.concatenate((xtl, ytl, xbr, ybr), axis=1)
 
+def remove_overlapping_boxes(boxes, iou_threshold):
+    """
+    Remove overlapping bounding boxes based on IoU threshold.
+    
+    Args:
+    boxes (np.array): Array of bounding boxes in format [xtl, ytl, xbr, ybr]
+    iou_threshold (float): IoU threshold for considering boxes as overlapping
+    
+    Returns:
+    list: List of boxes to keep 
+    """
+    
+    def calculate_iou(box1, box2):
+        """Calculate IoU of two bounding boxes."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        
+        iou = intersection / (area1 + area2 - intersection)
+        return iou
+    
+    if len(boxes) == 0:
+        return np.array([])
+    
+    # Sort boxes by area (largest first)
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    sorted_indices = np.argsort(areas).tolist()
+    sorted_indices.reverse()  # Reverse the order to get largest first
+    
+    keep = []
+    
+    for i in range(len(boxes)):
+        should_keep = True
+        for j in keep:
+            if calculate_iou(boxes[i], boxes[j]) > iou_threshold:
+                should_keep = False
+                break
+        if should_keep:
+            keep.append(i)
+    
+    return keep
+
 def clip_boxes(boxes, shape):
     """
     Takes a list of bounding boxes and a shape (height, width) and clips the bounding boxes to the shape.
@@ -461,7 +521,7 @@ def plot_boxes(boxes, cv_image, mode='det'):
     if mode=='track':
         tracks = boxes.copy()
         boxes = np.array([track.tlbr for track in boxes])
-        # boxes = xywh2xyxy(boxes)
+        # boxes = xywh2xyxy(boxes) This is not needed and only kept for debugging
         for box_idx in range(boxes.shape[0]):  
             box = boxes[box_idx, :]
             # if tracklet.score < 1.0:
@@ -471,23 +531,39 @@ def plot_boxes(boxes, cv_image, mode='det'):
             color = (0, 0, 255)
             text = '{} {}'.format('canola', int(tracks[box_idx].track_id)) # TODO dynamically assign classes in a multi class scenarios
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
-            cv2.rectangle(cv_image, 
-                        pt1=(int(box[0]), int(box[1] - 25)),
-                        pt2=(int(box[0] + tw), int(box[1])),
-                        color=color, 
-                        thickness=-1) # solid background rectangle
-            cv2.rectangle(cv_image,
-                        pt1=(int(box[0]), int(box[1])),
-                        pt2=(int(box[2]), int(box[3])),
-                        color=color,
-                        thickness=2)
-            cv2.putText(cv_image,
+            if int(box[1] - 25) < 10:   # if box is at the top then put label at bottom right corner.
+                cv2.rectangle(cv_image, 
+                            pt1=(int(box[2] - tw), int(box[3])),
+                            pt2=(int(box[2]), int(box[3] + 25)),
+                            color=color, 
+                            thickness=-1) # solid background rectangle
+                cv2.putText(cv_image,
+                        text,
+                        org=(int(box[2] - tw + 1), int(box[3] + 20)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=0.9,
+                        thickness=2,
+                        color=(255, 255, 255))
+            else:
+                cv2.rectangle(cv_image, 
+                            pt1=(int(box[0]), int(box[1] - 25)),
+                            pt2=(int(box[0] + tw), int(box[1])),
+                            color=color, 
+                            thickness=-1) # solid background rectangle
+                cv2.putText(cv_image,
                         text,
                         org=(int(box[0]), int(box[1] - 5)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                         fontScale=0.9,
                         thickness=2,
                         color=(255, 255, 255))
+            cv2.rectangle(cv_image,
+                        pt1=(int(box[0]), int(box[1])),
+                        pt2=(int(box[2]), int(box[3])),
+                        color=color,
+                        thickness=2)
+            
+            # cv2.rectangle(cv_image, (50, 50), (400, 400), (0, 255, 0), 2)
     else:
         # boxes = xywh2xyxy(boxes)
         color = (255, 0, 0)
@@ -502,7 +578,8 @@ def plot_boxes(boxes, cv_image, mode='det'):
                         pt2=(int(box[2]), int(box[3])),
                         color=color,
                         thickness=2)
-            text = '{} {:.2f}'.format('canola', box[4].item()) # TODO dynamically assign classes in a multi class scenarios
+            class_ids = {1: 'crop', 2: 'weed'}
+            text = '{} {:.2f}'.format(class_ids[int(boxes[obj, 5].item())], box[4].item()) # TODO dynamically assign classes in a multi class scenarios
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
             cv2.rectangle(cv_image, 
                         pt1=(int(box[0]), int(box[1] - 25)),
