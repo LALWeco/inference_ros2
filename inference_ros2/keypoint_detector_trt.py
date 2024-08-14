@@ -46,6 +46,8 @@ class CropKeypointDetector(Node):
         self.inference_mode = mode
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden. 
         self.trt_context = None 
+        self.confidence = 0.5
+        self.iou_threshold = 0.5
         self.init_model(mode=mode)
         self.publisher = self.create_publisher(Keypoint2DArray, '/cropweed/keypoint_detection', 10)
 
@@ -98,7 +100,6 @@ class CropKeypointDetector(Node):
             self.dtype = np.int8
         else:
             self.dtype = np.float32
-        self.confidence = 0.5
         self.batch_size = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
         trt.init_libnvinfer_plugins(self.trt_logger, namespace="")
         self.trt_context = self.engine.create_execution_context()
@@ -194,14 +195,18 @@ class CropKeypointDetector(Node):
         """Postprocess the model output for publishing"""
         det = output[0]
         preds = non_max_suppression_v8(prediction=det, 
-                                       conf_thres=0.5, 
-                                       iou_thres=0.5,
+                                       conf_thres=self.confidence, 
+                                       iou_thres=self.iou_threshold,
                                        max_det=200,
-                                    #    multi_label=True, 
                                        nc=len(classes))[0] 
         preds[:, :4] = scale_boxes(preds[:, :4], (self.p_h, self.p_w), self.orig_shape, padded=True)
         pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
+        self.online_targets = self.tracker.update(preds, self.orig_shape, self.orig_shape)
+        if len(self.online_targets) != 0: 
+            self.orig = plot(self.online_targets, None, self.orig, mode='track')
+        # if preds.shape[0] != 0:
+        #     self.orig = plot(preds, None, self.orig, mode='det')
         # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
         if preds.shape[0] != 0:
             keypoint_msg = Keypoint2DArray()
