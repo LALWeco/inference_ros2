@@ -4,21 +4,27 @@ WORKDIR /ros2_ws/src/inference_ros2
 COPY . /ros2_ws/src/inference_ros2
 USER root
 SHELL ["/bin/bash", "-c"]
+ARG PACKAGES="wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6"
+
 # Install python dependencies
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt update && \
-    apt install -y wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6 && \ 
+    apt-get install -y --no-install-recommends $PACKAGES && \
     apt-add-repository universe && \
     apt-add-repository multiverse && \ 
     apt-add-repository restricted && \
-    python3 -m pip install --upgrade pip && \
-    apt autoremove
+    apt autoremove && apt clean
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade pip
 
 # Run pip install using the download cache
+# RUN --mount=type=cache,target=/root/.cache \
+#     python3 -m pip install onnxruntime-gpu imutils opencv-python opencv-contrib-python torchvision==0.14.1 torch==1.13.1
+
 RUN --mount=type=cache,target=/root/.cache \
-    python3 -m pip install onnxruntime-gpu imutils opencv-python opencv-contrib-python torchvision==0.14.1 torch==1.13.1
+    python3 -m pip install --no-cache-dir -r requirements.txt
 
 RUN apt update && apt install locales && \
     locale-gen en_US en_US.UTF-8 && \
@@ -38,6 +44,23 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     apt install -y ros-humble-desktop ros-dev-tools python3-argcomplete && \
     apt install -y qtbase5-dev qtdeclarative5-dev && \
     apt autoremove && \
+    rm -rf /var/lib/apt/lists/* && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
-# ENTRYPOINT ["/workspace/ros_5g/docker/amd64/entrypoint.sh"]
+# Install ByteTrack
+WORKDIR /root/
+RUN git clone https://github.com/LALWeco/ByteTrack.git && \
+    cd ByteTrack && python3 setup.py develop
+
+WORKDIR /ros2_ws/
+RUN colcon build 
+WORKDIR /ros2_ws/src/inference_ros2
+
+# Set the ROS_DISTRO environment variable
+ENV ROS_DISTRO=humble
+
+# Set the entrypoint
+ENTRYPOINT ["/ros2_ws/src/inference_ros2/entrypoint.sh"]
+
+# Command to run when starting the container
+CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt"]
