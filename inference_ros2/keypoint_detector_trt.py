@@ -5,8 +5,7 @@ import cv2
 import numpy as np
 import imutils
 import os
-import time 
-import pdb
+import time
 
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
@@ -58,7 +57,6 @@ class CropKeypointDetector(Node):
         return super().get_logger()
     
     def listener_callback(self, msg):
-        pdb.set_trace()
         if self.compressed:
             self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
         else:
@@ -81,7 +79,6 @@ class CropKeypointDetector(Node):
                 self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
             try:
-                pdb.set_trace()
                 outputs = self.infer_trt(self.input_image)
                 t3 = time.time()
                 inference_time = round((t3-t2)*1000, 2)

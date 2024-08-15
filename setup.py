@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'instance_detector = inference_ros2.instance_detector:main',
             'keypoint_detector = inference_ros2.keypoint_detector:main',
+            'keypoint_detector_trt = inference_ros2.keypoint_detector_trt:main',
             'bbox_detector = inference_ros2.object_detector:main'
         ],
     },
