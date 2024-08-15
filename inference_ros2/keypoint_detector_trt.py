@@ -6,6 +6,7 @@ import numpy as np
 import imutils
 import os
 import time 
+import pdb
 
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
@@ -57,6 +58,7 @@ class CropKeypointDetector(Node):
         return super().get_logger()
     
     def listener_callback(self, msg):
+        pdb.set_trace()
         if self.compressed:
             self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg)
         else:
@@ -79,6 +81,7 @@ class CropKeypointDetector(Node):
                 self.postprocess_image(outputs)
         elif self.inference_mode == 'tensorrt':
             try:
+                pdb.set_trace()
                 outputs = self.infer_trt(self.input_image)
                 t3 = time.time()
                 inference_time = round((t3-t2)*1000, 2)
@@ -103,6 +106,7 @@ class CropKeypointDetector(Node):
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
         self.engine_path = os.path.join('/ros2_ws/src/inference_ros2/model/yolov8_trt_23.10_fp32.engine')
+        self.engine_path = os.path.join('/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine')
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
         trt.init_libnvinfer_plugins(None, "")   
@@ -266,7 +270,7 @@ class CropKeypointDetector(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = CropKeypointDetector(topic='/zed/zed_node/rgb/image_rect_color', mode='tensorrt')
+    subscriber = CropKeypointDetector(topic='/sensors/zed_l/zed_node/left/image_rect_color', mode='tensorrt')
     rclpy.spin(subscriber)
     subscriber.destroy_node()
     rclpy.shutdown()

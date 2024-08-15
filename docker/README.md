@@ -19,6 +19,7 @@ docker run -it --runtime=nvidia --net=host --ipc=host -v /home/niqbal/ros2_ws:/r
 ```bash
 cd <root directory of this repo>
 sudo -H DOCKER_BUILDKIT=1 docker build -f docker/amd64/Dockerfile_humble -t niqbal996/inference_ros2:23.10-humble-py3 .
+sudo -H DOCKER_BUILDKIT=1 docker build -f docker/amd64/Dockerfile_humble -t niqbal996/inference_ros2:23.10-humble-py3 .
 ```
 Run the container
 ```bash
