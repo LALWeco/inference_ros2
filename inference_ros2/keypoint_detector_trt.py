@@ -5,8 +5,7 @@ import cv2
 import numpy as np
 import imutils
 import os
-import signal
-import sys
+import time 
 
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
@@ -16,7 +15,8 @@ from sensor_msgs.msg import CompressedImage, Image
 import tensorrt as trt
 import pycuda.driver as cuda
 from utils.trt_utils import HostDeviceMem, _cuda_error_check, TrtLogger
-from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot
+from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot, xywh2xyxy
+from yolox.tracker.byte_tracker import BYTETracker
 
 
 classes = ['background', 'crop', 'weed']
@@ -41,13 +41,14 @@ class CropKeypointDetector(Node):
                 self.listener_callback,
                 10)
         self.get_logger().info('Subscribing to {}'.format(topic))
+        self.ros_logger = self.get_logger()
         self.trt_logger = TrtLogger(self)
+        self.class_ids = {0: 'weeds', 1: 'maize'}
+        self.tracker = BYTETracker(args=None, class_dict=self.class_ids)
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden. 
         self.trt_context = None 
-        self.confidence = 0.5
-        self.iou_threshold = 0.5
         self.init_model(mode=mode)
         self.publisher = self.create_publisher(Keypoint2DArray, '/cropweed/keypoint_detection', 10)
 
@@ -62,7 +63,15 @@ class CropKeypointDetector(Node):
             self.cv_image = CvBridge().imgmsg_to_cv2(msg)
         if self.cv_image.shape[2] != 3:
             self.cv_image = self.cv_image[:,:, :3]
-        self.input_image = self.preprocess_image(self.cv_image)
+        # TODO: Remove after DEBUG
+        self.header = msg.header
+        # self.cv_image = cv2.imread('./sample.png')
+        # self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
+        self.orig = self.cv_image.astype(np.uint8)
+        t1 = time.time()
+        self.input_image = self.preprocess_image(self.cv_image)        
+        t2 = time.time()
+        preprocess_time = round((t2-t1)*1000, 2)
         # inference
         if self.inference_mode == 'onnx':
             outputs = self.model.run(None, {self.input_name: self.input_image})
@@ -71,8 +80,17 @@ class CropKeypointDetector(Node):
         elif self.inference_mode == 'tensorrt':
             try:
                 outputs = self.infer_trt(self.input_image)
+                t3 = time.time()
+                inference_time = round((t3-t2)*1000, 2)
                 if outputs is not None:
                     self.postprocess_image(outputs)
+                t4 = time.time()
+                post_process_time = round((t4-t3)*1000, 2)
+                total = preprocess_time + inference_time + post_process_time
+                self.ros_logger.info("Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(preprocess_time, 
+                                                                                                                 inference_time, 
+                                                                                                                 post_process_time,
+                                                                                                                 round(1/(total / 1000), 2)))
             except KeyboardInterrupt:
                 self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
                 self.cuda_ctx.pop()
@@ -84,7 +102,7 @@ class CropKeypointDetector(Node):
         cuda.init()
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
-        self.engine_path = os.path.join('/root/ros2_ws/src/inference_ros2/model/yolov8_trt_23.10_fp32.engine')
+        self.engine_path = os.path.join('/ros2_ws/src/inference_ros2/model/yolov8_trt_23.10_fp32.engine')
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
         trt.init_libnvinfer_plugins(None, "")   
@@ -100,6 +118,7 @@ class CropKeypointDetector(Node):
             self.dtype = np.int8
         else:
             self.dtype = np.float32
+        self.confidence = 0.5
         self.batch_size = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
         trt.init_libnvinfer_plugins(self.trt_logger, namespace="")
         self.trt_context = self.engine.create_execution_context()
@@ -195,18 +214,27 @@ class CropKeypointDetector(Node):
         """Postprocess the model output for publishing"""
         det = output[0]
         preds = non_max_suppression_v8(prediction=det, 
-                                       conf_thres=self.confidence, 
-                                       iou_thres=self.iou_threshold,
+                                       conf_thres=0.5, 
+                                       iou_thres=0.9,
                                        max_det=200,
+                                    #    multi_label=True, 
                                        nc=len(classes))[0] 
+        # The preds are in xtl,ytl,w,h format
         preds[:, :4] = scale_boxes(preds[:, :4], (self.p_h, self.p_w), self.orig_shape, padded=True)
+        preds[:, :4] = xywh2xyxy(preds[:, :4])
+        # keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
+        # preds = preds[keep_indices, :]
         pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
+        # The tracker expects them in xtl,ytl,xbr,ybr format.
         self.online_targets = self.tracker.update(preds, self.orig_shape, self.orig_shape)
-        if len(self.online_targets) != 0: 
-            self.orig = plot(self.online_targets, None, self.orig, mode='track')
         # if preds.shape[0] != 0:
-        #     self.orig = plot(preds, None, self.orig, mode='det')
+        #     self.orig = plot(preds, pred_kpts, self.orig, mode='det')
+        # if len(self.online_targets) != 0: 
+        #     self.orig = plot(self.online_targets, None, self.orig, mode='track')
+        # cv2.imwrite('prediction.jpg', self.orig)
+        # cv2.imshow('predictions', self.orig)
+        # cv2.waitKey(1)
         # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
         if preds.shape[0] != 0:
             keypoint_msg = Keypoint2DArray()
@@ -228,6 +256,7 @@ class CropKeypointDetector(Node):
                 keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
                 keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
                 keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
+                keypoint_msg.header = self.header
                 keypoint_msg.keypoints.append(keypoint)
                 keypoint_msg.detections.append(detection)
             self.publisher.publish(keypoint_msg)
