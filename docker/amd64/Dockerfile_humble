@@ -1,63 +1,61 @@
 FROM nvcr.io/nvidia/tensorrt:23.10-py3
 
 WORKDIR /ros2_ws/src/inference_ros2
-COPY . /ros2_ws/src/inference_ros2
-USER root
-SHELL ["/bin/bash", "-c"]
-ARG PACKAGES="wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6"
 
-# Install python dependencies
-RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
-    --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    apt update && \
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DISTRO=humble
+ENV LANG=en_US.UTF-8
+
+# Set shell
+SHELL ["/bin/bash", "-c"]
+
+# Install system dependencies
+ARG PACKAGES="wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6 locales qtbase5-dev qtdeclarative5-dev"
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends $PACKAGES && \
     apt-add-repository universe && \
-    apt-add-repository multiverse && \ 
+    apt-add-repository multiverse && \
     apt-add-repository restricted && \
-    apt autoremove && apt clean
-
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install --upgrade pip
-
-# Run pip install using the download cache
-# RUN --mount=type=cache,target=/root/.cache \
-#     python3 -m pip install onnxruntime-gpu imutils opencv-python opencv-contrib-python torchvision==0.14.1 torch==1.13.1
-
-RUN --mount=type=cache,target=/root/.cache \
-    python3 -m pip install --no-cache-dir -r requirements.txt
-
-RUN apt update && apt install locales && \
     locale-gen en_US en_US.UTF-8 && \
     update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
-    LANG=en_US.UTF-8
+    rm -rf /var/lib/apt/lists/*
 
-# Install ROS and use the download cache
-RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
-    --mount=target=/var/cache/apt,type=cache,sharing=locked \
-    rm -f /etc/apt/apt.conf.d/docker-clean && \
-    add-apt-repository universe  && \
-    apt update && \
+# Install ROS2
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
-    apt update && \
-    apt upgrade -y && \
-    apt install -y ros-humble-desktop ros-dev-tools python3-argcomplete && \
-    apt install -y qtbase5-dev qtdeclarative5-dev && \
-    apt autoremove && \
+    apt-get update && \
+    apt-get install -y ros-humble-desktop ros-dev-tools python3-argcomplete && \
     rm -rf /var/lib/apt/lists/* && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+
+# Install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r /tmp/requirements.txt
 
 # Install ByteTrack
 WORKDIR /root/
 RUN git clone https://github.com/LALWeco/ByteTrack.git && \
     cd ByteTrack && python3 setup.py develop
 
-WORKDIR /ros2_ws/
-RUN colcon build 
-WORKDIR /ros2_ws/src/inference_ros2
+# Install keypoint detection custom message definitions
+WORKDIR /ros2_ws/src/
+RUN git clone https://github.com/LALWeco/vision_msgs.git
 
-# Set the ROS_DISTRO environment variable
-ENV ROS_DISTRO=humble
+# Copy project files
+COPY . /ros2_ws/src/inference_ros2
+
+# Build ROS2 workspace
+WORKDIR /ros2_ws/
+RUN . /opt/ros/humble/setup.sh && colcon build
+
+WORKDIR /ros2_ws/src/inference_ros2
 
 # Set the entrypoint
 ENTRYPOINT ["/ros2_ws/src/inference_ros2/entrypoint.sh"]
