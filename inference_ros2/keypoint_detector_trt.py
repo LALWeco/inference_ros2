@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import imutils
 import os
-import time 
+import time
 
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
@@ -26,6 +26,13 @@ class CropKeypointDetector(Node):
 
     def __init__(self, mode='onnx', topic='/realsenseD435/color/image_raw/compressed'):
         super().__init__('CropKeypointDetector')
+        self.declare_parameter('operation_mode', 'detection')
+        self.operation_mode = self.get_parameter('operation_mode').get_parameter_value().string_value
+        self.get_logger().info(f'Operating in {self.operation_mode} mode')
+        if self.operation_mode == 'detection':
+            self.publisher = self.create_publisher(Keypoint2DArray, '/inference/Keypoint2DDetArray', 10)
+        elif self.operation_mode == 'image':
+            self.publisher = self.create_publisher(Image, '/inference/detection_image', 10)
         if 'compressed' in topic:
             self.compressed = True
             self.subscription = self.create_subscription(
@@ -43,14 +50,13 @@ class CropKeypointDetector(Node):
         self.get_logger().info('Subscribing to {}'.format(topic))
         self.ros_logger = self.get_logger()
         self.trt_logger = TrtLogger(self)
-        self.class_ids = {0: 'weeds', 1: 'maize'}
+        self.class_ids = {0: 'weeds', 1: 'crop'}
         self.tracker = BYTETracker(args=None, class_dict=self.class_ids)
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden. 
         self.trt_context = None 
         self.init_model(mode=mode)
-        self.publisher = self.create_publisher(Keypoint2DArray, '/cropweed/keypoint_detection', 10)
 
     def get_logger(self):
         # Override get_logger to use ROS 2 logger
@@ -228,50 +234,57 @@ class CropKeypointDetector(Node):
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
         # The tracker expects them in xtl,ytl,xbr,ybr format.
         self.online_targets = self.tracker.update(preds, self.orig_shape, self.orig_shape)
-        # if preds.shape[0] != 0:
-        #     self.orig = plot(preds, pred_kpts, self.orig, mode='det')
+        if preds.shape[0] != 0:
+            self.orig = plot(preds, pred_kpts, self.orig, mode='det')
         # if len(self.online_targets) != 0: 
         #     self.orig = plot(self.online_targets, None, self.orig, mode='track')
         # cv2.imwrite('prediction.jpg', self.orig)
         # cv2.imshow('predictions', self.orig)
         # cv2.waitKey(1)
         # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
-        if preds.shape[0] != 0:
-            keypoint_msg = Keypoint2DArray()
-            keypoint_msg.header.stamp = self.get_clock().now().to_msg()
-            keypoint_msg.header.frame_id = self.header.frame_id
-            obj = ObjectHypothesisWithPose()
-            for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
-                bbox = BoundingBox2D()
-                detection = Detection2D() 
-                bbox.center.position.x = preds[i, 0].item()
-                bbox.center.position.y = preds[i, 1].item()
-                bbox.size_x = preds[i, 2].item()
-                bbox.size_y = preds[i, 3].item()
+        if self.operation_mode == 'detection':
+            if preds.shape[0] != 0:
+                keypoint_msg = Keypoint2DArray()
+                keypoint_msg.header.stamp = self.get_clock().now().to_msg()
+                keypoint_msg.header.frame_id = self.header.frame_id
                 obj = ObjectHypothesisWithPose()
-                obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
-                obj.hypothesis.score = np.round(preds[i, 4].item(), 2)
-                detection.bbox = bbox
-                detection.results.append(obj) 
-                detection.id = str(0)                               # TODO add tracking IDs here. 
-                keypoint = Keypoint2D()
-                keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
-                keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
-                keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
-                keypoint_msg.keypoints.append(keypoint)
-                keypoint_msg.detections.append(detection)
-            self.publisher.publish(keypoint_msg)
-        else:
-            keypoint_msg = Keypoint2DArray()
-            keypoint_msg.header.stamp = self.get_clock().now().to_msg()
-            keypoint_msg.header.frame_id = self.header.frame_id
-            self.publisher.publish(keypoint_msg)
+                for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
+                    bbox = BoundingBox2D()
+                    detection = Detection2D() 
+                    bbox.center.position.x = preds[i, 0].item()
+                    bbox.center.position.y = preds[i, 1].item()
+                    bbox.size_x = preds[i, 2].item()
+                    bbox.size_y = preds[i, 3].item()
+                    obj = ObjectHypothesisWithPose()
+                    obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
+                    obj.hypothesis.score = np.round(preds[i, 4].item(), 2)
+                    detection.bbox = bbox
+                    detection.results.append(obj) 
+                    detection.id = str(0)                               # TODO add tracking IDs here. 
+                    keypoint = Keypoint2D()
+                    keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
+                    keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
+                    keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
+                    keypoint_msg.keypoints.append(keypoint)
+                    keypoint_msg.detections.append(detection)
+                self.publisher.publish(keypoint_msg)
+            else:
+                keypoint_msg = Keypoint2DArray()
+                keypoint_msg.header.stamp = self.get_clock().now().to_msg()
+                keypoint_msg.header.frame_id = self.header.frame_id
+                self.publisher.publish(keypoint_msg)
+        elif self.operation_mode == 'image':
+            processed_image = self.orig  
+            img_msg = CvBridge().cv2_to_imgmsg(processed_image, encoding="bgr8")
+            img_msg.header.stamp = self.get_clock().now().to_msg()
+            img_msg.header.frame_id = self.header.frame_id
+            self.publisher.publish(img_msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = CropKeypointDetector(topic='/sensors/zed_r/zed_node/rgb/image_rect_color', mode='tensorrt')
-    rclpy.spin(subscriber)
-    subscriber.destroy_node()
+    node = CropKeypointDetector(topic='/sensors/zed_r/zed_node/rgb/image_rect_color', mode='tensorrt')
+    rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()
 
 if __name__ == '__main__':

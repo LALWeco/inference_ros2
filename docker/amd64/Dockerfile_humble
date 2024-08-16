@@ -63,4 +63,4 @@ WORKDIR /ros2_ws/src/inference_ros2
 ENTRYPOINT ["/ros2_ws/src/inference_ros2/entrypoint.sh"]
 
 # Command to run when starting the container
-CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt"]
+CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt", "--ros-args", "-p", "operation_mode:=image"]

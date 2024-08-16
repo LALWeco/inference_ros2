@@ -23,6 +23,7 @@ sudo -H DOCKER_BUILDKIT=1 docker build -f docker/amd64/Dockerfile_humble -t niqb
 Run the container
 ```bash
 docker run -it --runtime=nvidia --net=host --ipc=host -v /home/niqbal/ros2_ws:/root/ros2_ws -v /dev/shm:/dev/shm -e ROS_DOMAIN_ID --name=infer_ros2_humble niqbal996/inference_ros2:23.10-humble-py3
+ros2 run inference_ros2 keypoint_detector_trt --ros-args -p operation_mode:=image # alternative shell command
 ```
 
 # NVidia Driver and CUDA installation on Intel NUC
