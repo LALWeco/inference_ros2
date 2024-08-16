@@ -238,7 +238,7 @@ class CropKeypointDetector(Node):
         # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
         if preds.shape[0] != 0:
             keypoint_msg = Keypoint2DArray()
-            keypoint_msg.header.stamp = self.clock().now().to_msg()
+            keypoint_msg.header.stamp = self.get_clock().now().to_msg()
             keypoint_msg.header.frame_id = self.header.frame_id
             obj = ObjectHypothesisWithPose()
             for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
