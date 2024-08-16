@@ -245,7 +245,7 @@ class CropKeypointDetector(Node):
         if self.operation_mode == 'detection':
             if preds.shape[0] != 0:
                 keypoint_msg = Keypoint2DArray()
-                keypoint_msg.header.stamp = self.get_clock().now().to_msg()
+                keypoint_msg.header.stamp = self.header.stamp
                 keypoint_msg.header.frame_id = self.header.frame_id
                 obj = ObjectHypothesisWithPose()
                 for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
@@ -270,13 +270,13 @@ class CropKeypointDetector(Node):
                 self.publisher.publish(keypoint_msg)
             else:
                 keypoint_msg = Keypoint2DArray()
-                keypoint_msg.header.stamp = self.get_clock().now().to_msg()
+                keypoint_msg.header.stamp = self.header.stamp
                 keypoint_msg.header.frame_id = self.header.frame_id
                 self.publisher.publish(keypoint_msg)
         elif self.operation_mode == 'image':
             processed_image = self.orig  
             img_msg = CvBridge().cv2_to_imgmsg(processed_image, encoding="bgr8")
-            img_msg.header.stamp = self.get_clock().now().to_msg()
+            img_msg.header.stamp = self.header.stamp
             img_msg.header.frame_id = self.header.frame_id
             self.publisher.publish(img_msg)
 

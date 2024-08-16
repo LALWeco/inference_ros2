@@ -496,8 +496,8 @@ def plot(boxes, keypoints, cv_image, mode='track'):
     cv_image = plot_boxes(boxes, cv_image, mode=mode) 
     if keypoints is not None:
         cv_image = plot_kpts(keypoints, cv_image)                 
-    cv2.imshow('prediction', cv_image)
-    cv2.waitKey(1)
+    # cv2.imshow('prediction', cv_image)
+    # cv2.waitKey(1)
     return cv_image
 
 def plot_boxes(boxes, cv_image, mode='det'):
@@ -537,7 +537,7 @@ def plot_boxes(boxes, cv_image, mode='det'):
                         thickness=2,
                         color=(255, 255, 255))
     else:
-        boxes = xywh2xyxy(boxes)
+        # boxes = xywh2xyxy(boxes)
         color = (255, 0, 0)
         for obj in range(boxes.shape[0]):  
             box = boxes[obj, :]   
