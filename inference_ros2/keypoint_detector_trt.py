@@ -63,9 +63,10 @@ class CropKeypointDetector(Node):
             self.cv_image = CvBridge().imgmsg_to_cv2(msg)
         if self.cv_image.shape[2] != 3:
             self.cv_image = self.cv_image[:,:, :3]
+        self.header = msg.header
         # TODO: Remove after DEBUG
-        self.cv_image = cv2.imread('./sample.png')
-        self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
+        # self.cv_image = cv2.imread('./sample.png')
+        # self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
         self.orig = self.cv_image.astype(np.uint8)
         t1 = time.time()
         self.input_image = self.preprocess_image(self.cv_image)        
@@ -237,6 +238,8 @@ class CropKeypointDetector(Node):
         # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
         if preds.shape[0] != 0:
             keypoint_msg = Keypoint2DArray()
+            keypoint_msg.header.stamp = self.clock().now().to_msg()
+            keypoint_msg.header.frame_id = self.header.frame_id
             obj = ObjectHypothesisWithPose()
             for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
                 bbox = BoundingBox2D()
@@ -260,11 +263,13 @@ class CropKeypointDetector(Node):
             self.publisher.publish(keypoint_msg)
         else:
             keypoint_msg = Keypoint2DArray()
+            keypoint_msg.header.stamp = self.get_clock().now().to_msg()
+            keypoint_msg.header.frame_id = self.header.frame_id
             self.publisher.publish(keypoint_msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = CropKeypointDetector(topic='/sensors/zed_l/zed_node/left/image_rect_color', mode='tensorrt')
+    subscriber = CropKeypointDetector(topic='/sensors/zed_r/zed_node/rgb/image_rect_color', mode='tensorrt')
     rclpy.spin(subscriber)
     subscriber.destroy_node()
     rclpy.shutdown()
