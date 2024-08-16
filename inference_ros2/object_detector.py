@@ -20,7 +20,7 @@ from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot
 class CropDetector(Node):
 
     def __init__(self, mode='onnx', topic='/realsenseD435/color/image_raw/compressed'):
-        super().__init__('CropDetector')
+        super().__init__('CropBBoxDetector')
         if 'compressed' in topic:
             self.compressed = True
             self.subscription = self.create_subscription(
@@ -52,10 +52,13 @@ class CropDetector(Node):
     def listener_callback(self, msg):
         if self.compressed:
             self.cv_image = CvBridge().compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            self.orig = self.cv_image
         else:
             self.cv_image = CvBridge().imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            self.orig = self.cv_image
+            if msg.encoding == 'bayer_rggb8':
+                self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BAYER_BG2BGR)
+            elif msg.encoding == '8UC4' or msg.encoding == 'bgra8': # 3 dim image with more than 3 channels BGRA
+                self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGRA2BGR)
+        self.orig = self.cv_image.copy()
         self.cv_image = self.preprocess_image(self.cv_image)
         # inference
         if self.inference_mode == 'onnx':
@@ -193,10 +196,11 @@ class CropDetector(Node):
         preds = []
         cv2.imshow('prediction', self.orig)
         cv2.waitKey(1)
+        # TODO add publisher here for sending boxes with tracking IDs
 
 def main(args=None):
     rclpy.init(args=args)
-    subscriber = CropDetector(topic='/oak1_3/oak_rgb_publisher/compressed')
+    subscriber = CropDetector(topic='/oak1_1/oak_rgb_publisher/compressed')
     rclpy.spin(subscriber)
     subscriber.destroy_node()
     rclpy.shutdown()

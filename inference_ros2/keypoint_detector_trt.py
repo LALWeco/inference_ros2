@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import imutils
 import os
-import time
+import time 
 
 # message definitions
 from vision_msgs.msg import Detection2D, BoundingBox2D, ObjectHypothesisWithPose
@@ -15,7 +15,7 @@ from sensor_msgs.msg import CompressedImage, Image
 import tensorrt as trt
 import pycuda.driver as cuda
 from utils.trt_utils import HostDeviceMem, _cuda_error_check, TrtLogger
-from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot, xywh2xyxy
+from utils import non_max_suppression_v8, scale_boxes, scale_coords, plot, remove_overlapping_boxes, xywh2xyxy
 from yolox.tracker.byte_tracker import BYTETracker
 
 
@@ -64,9 +64,8 @@ class CropKeypointDetector(Node):
         if self.cv_image.shape[2] != 3:
             self.cv_image = self.cv_image[:,:, :3]
         # TODO: Remove after DEBUG
-        self.header = msg.header
-        # self.cv_image = cv2.imread('./sample.png')
-        # self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
+        self.cv_image = cv2.imread('./sample.png')
+        self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
         self.orig = self.cv_image.astype(np.uint8)
         t1 = time.time()
         self.input_image = self.preprocess_image(self.cv_image)        
@@ -102,7 +101,6 @@ class CropKeypointDetector(Node):
         cuda.init()
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
-        self.engine_path = os.path.join('/ros2_ws/src/inference_ros2/model/yolov8_trt_23.10_fp32.engine')
         self.engine_path = os.path.join('/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine')
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
@@ -223,8 +221,8 @@ class CropKeypointDetector(Node):
         # The preds are in xtl,ytl,w,h format
         preds[:, :4] = scale_boxes(preds[:, :4], (self.p_h, self.p_w), self.orig_shape, padded=True)
         preds[:, :4] = xywh2xyxy(preds[:, :4])
-        # keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
-        # preds = preds[keep_indices, :]
+        keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
+        preds = preds[keep_indices, :]
         pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
         # The tracker expects them in xtl,ytl,xbr,ybr format.
@@ -257,7 +255,6 @@ class CropKeypointDetector(Node):
                 keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
                 keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
                 keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
-                keypoint_msg.header = self.header
                 keypoint_msg.keypoints.append(keypoint)
                 keypoint_msg.detections.append(detection)
             self.publisher.publish(keypoint_msg)
