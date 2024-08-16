@@ -345,6 +345,54 @@ def non_max_suppression_v8(
 
     return output
 
+def remove_overlapping_boxes(boxes, iou_threshold):
+    """
+    Remove overlapping bounding boxes based on IoU threshold.
+    
+    Args:
+    boxes (np.array): Array of bounding boxes in format [xtl, ytl, xbr, ybr]
+    iou_threshold (float): IoU threshold for considering boxes as overlapping
+    
+    Returns:
+    list: List of boxes to keep 
+    """
+    
+    def calculate_iou(box1, box2):
+        """Calculate IoU of two bounding boxes."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+        
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        
+        iou = intersection / (area1 + area2 - intersection)
+        return iou
+    
+    if len(boxes) == 0:
+        return np.array([])
+    
+    # Sort boxes by area (largest first)
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    sorted_indices = np.argsort(areas).tolist()
+    sorted_indices.reverse()  # Reverse the order to get largest first
+    
+    keep = []
+    
+    for i in range(len(boxes)):
+        should_keep = True
+        for j in keep:
+            if calculate_iou(boxes[i], boxes[j]) > iou_threshold:
+                should_keep = False
+                break
+        if should_keep:
+            keep.append(i)
+    
+    return keep
+
+
 def scale_boxes(box, source_dim=(512,512), orig_size=(760, 1280), padded=False):
         '''
         box: Bounding box generated for the model input size (e.g. 512 x 512) which was fed to the model. 
