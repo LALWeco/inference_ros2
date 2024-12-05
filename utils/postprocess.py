@@ -4,6 +4,12 @@ import torchvision
 import numpy as np
 import cv2
 
+class_dict = {
+    0: 'background',
+    1: 'crop', 
+    2: 'weed'
+}
+
 def box_iou(box1, box2, eps=1e-7):
     # https://github.com/pytorch/vision/blob/master/torchvision/ops/boxes.py
     """
@@ -550,7 +556,7 @@ def plot_boxes(boxes, cv_image, mode='det'):
                         pt2=(int(box[2]), int(box[3])),
                         color=color,
                         thickness=2)
-            text = '{} {:.2f}'.format('canola', box[4].item()) # TODO dynamically assign classes in a multi class scenarios
+            text = '{} {:.2f}'.format(class_dict[int(box[5].item())], box[4].item()) # TODO dynamically assign classes in a multi class scenarios
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
             cv2.rectangle(cv_image, 
                         pt1=(int(box[0]), int(box[1] - 25)),
