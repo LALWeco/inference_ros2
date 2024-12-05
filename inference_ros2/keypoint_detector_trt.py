@@ -24,15 +24,15 @@ kpt_shape = (1,3)
 
 class CropKeypointDetector(Node):
 
-    def __init__(self, mode='onnx', topic='/realsenseD435/color/image_raw/compressed'):
+    def __init__(self, mode='fp32', topic='/realsenseD435/color/image_raw/compressed'):
         super().__init__('CropKeypointDetector')
         self.declare_parameter('operation_mode', 'detection')
         self.operation_mode = self.get_parameter('operation_mode').get_parameter_value().string_value
         self.get_logger().info(f'Operating in {self.operation_mode} mode')
-        if self.operation_mode == 'detection':
-            self.publisher = self.create_publisher(Keypoint2DArray, '/inference/Keypoint2DDetArray', 10)
-        elif self.operation_mode == 'image':
-            self.publisher = self.create_publisher(Image, '/inference/detection_image', 10)
+        # if self.operation_mode == 'detection':
+        self.publisher_array = self.create_publisher(Keypoint2DArray, '/inference/Keypoint2DDetArray', 10)
+        # elif self.operation_mode == 'image':
+        self.publisher_image = self.create_publisher(Image, '/inference/detection_image', 10)
         if 'compressed' in topic:
             self.compressed = True
             self.subscription = self.create_subscription(
@@ -74,53 +74,47 @@ class CropKeypointDetector(Node):
         # self.cv_image = cv2.imread('./sample.png')
         # self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
         self.orig = self.cv_image.astype(np.uint8)
-        t1 = time.time()
-        self.input_image = self.preprocess_image(self.cv_image)        
-        t2 = time.time()
-        preprocess_time = round((t2-t1)*1000, 2)
-        # inference
-        if self.inference_mode == 'onnx':
-            outputs = self.model.run(None, {self.input_name: self.input_image})
+        try:
+            t1 = time.time()
+            self.input_image = self.preprocess_image(self.cv_image)        
+            t2 = time.time()
+            preprocess_time = round((t2-t1)*1000, 2)
+            # inference
+            outputs = self.infer_trt(self.input_image)
+            t3 = time.time()
+            inference_time = round((t3-t2)*1000, 2)
             if outputs is not None:
                 self.postprocess_image(outputs)
-        elif self.inference_mode == 'tensorrt':
-            try:
-                outputs = self.infer_trt(self.input_image)
-                t3 = time.time()
-                inference_time = round((t3-t2)*1000, 2)
-                if outputs is not None:
-                    self.postprocess_image(outputs)
-                t4 = time.time()
-                post_process_time = round((t4-t3)*1000, 2)
-                total = preprocess_time + inference_time + post_process_time
-                self.ros_logger.info("Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(preprocess_time, 
-                                                                                                                 inference_time, 
-                                                                                                                 post_process_time,
-                                                                                                                 round(1/(total / 1000), 2)))
-            except KeyboardInterrupt:
-                self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
-                self.cuda_ctx.pop()
-        else:
-            raise ValueError('Invalid mode. Choose either onnx or tensorrt')
+            t4 = time.time()
+            post_process_time = round((t4-t3)*1000, 2)
+            total = preprocess_time + inference_time + post_process_time
+            self.ros_logger.info("Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(preprocess_time, 
+                                                                                                                    inference_time, 
+                                                                                                                    post_process_time,
+                                                                                                                    round(1/(total / 1000), 2)))
+        except KeyboardInterrupt:
+            self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
+            self.cuda_ctx.pop()
 
-    def init_model(self, mode='onnx'):
+
+    def init_model(self, mode='fp32'):
         """Initialize the model for inference"""
         cuda.init()
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
-        self.engine_path = os.path.join('/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine')
+        self.engine_path = os.path.join('/root/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-{}-23.10-800.engine'.format(mode))
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
         trt.init_libnvinfer_plugins(None, "")   
-        assert os.path.exists(self.engine_path)          
+        assert os.path.exists(self.engine_path), f"Engine file not found at path: \n {self.engine_path}"      
         with open(self.engine_path, "rb") as f:
             engine_data = f.read()
         self.engine = self.runtime.deserialize_cuda_engine(engine_data)
-        if 'fp32' in self.engine_path:
+        if mode == 'fp32':
             self.dtype = np.float32
-        elif 'fp16' in self.engine_path:
+        elif mode == 'fp16':
             self.dtype = np.float16
-        elif 'int8' in self.engine_path:
+        elif mode == 'int8':
             self.dtype = np.int8
         else:
             self.dtype = np.float32
@@ -221,11 +215,13 @@ class CropKeypointDetector(Node):
         det = output[0]
         preds = non_max_suppression_v8(prediction=det, 
                                        conf_thres=0.5, 
-                                       iou_thres=0.9,
+                                       iou_thres=0.4,
                                        max_det=200,
                                     #    multi_label=True, 
                                        nc=len(classes))[0] 
         # The preds are in xtl,ytl,w,h format
+        remove_indices = np.where(np.logical_or(preds[:, 5] == 1, preds[:, 5] == 0))[0]  # TODO remove after DEBUGGING
+        preds = np.delete(preds, remove_indices, axis=0) # TODO remove after DEBUGGING
         preds[:, :4] = scale_boxes(preds[:, :4], (self.p_h, self.p_w), self.orig_shape, padded=True)
         preds[:, :4] = xywh2xyxy(preds[:, :4])
         keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
@@ -233,7 +229,7 @@ class CropKeypointDetector(Node):
         pred_kpts = preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:] # TODO Fetch keypoint shape from model dynamically
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
         # The tracker expects them in xtl,ytl,xbr,ybr format.
-        self.online_targets = self.tracker.update(preds, self.orig_shape, self.orig_shape)
+        # self.online_targets = self.tracker.update(preds, self.orig_shape, self.orig_shape)
         if preds.shape[0] != 0:
             self.orig = plot(preds, pred_kpts, self.orig, mode='det')
         # if len(self.online_targets) != 0: 
@@ -242,47 +238,51 @@ class CropKeypointDetector(Node):
         # cv2.imshow('predictions', self.orig)
         # cv2.waitKey(1)
         # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
-        if self.operation_mode == 'detection':
-            if preds.shape[0] != 0:
-                keypoint_msg = Keypoint2DArray()
-                keypoint_msg.header.stamp = self.header.stamp
-                keypoint_msg.header.frame_id = self.header.frame_id
+        # if self.operation_mode == 'detection':
+        if preds.shape[0] != 0:
+            keypoint_msg = Keypoint2DArray()
+            keypoint_msg.header.stamp = self.header.stamp
+            keypoint_msg.header.frame_id = self.header.frame_id
+            obj = ObjectHypothesisWithPose()
+            for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
+                bbox = BoundingBox2D()
+                detection = Detection2D() 
+                bbox.center.position.x = preds[i, 0].item()
+                bbox.center.position.y = preds[i, 1].item()
+                bbox.size_x = preds[i, 2].item()
+                bbox.size_y = preds[i, 3].item()
                 obj = ObjectHypothesisWithPose()
-                for i, kpt_idx in zip(range(preds.shape[0]), range(pred_kpts.shape[0])):
-                    bbox = BoundingBox2D()
-                    detection = Detection2D() 
-                    bbox.center.position.x = preds[i, 0].item()
-                    bbox.center.position.y = preds[i, 1].item()
-                    bbox.size_x = preds[i, 2].item()
-                    bbox.size_y = preds[i, 3].item()
-                    obj = ObjectHypothesisWithPose()
-                    obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
-                    obj.hypothesis.score = np.round(preds[i, 4].item(), 2)
-                    detection.bbox = bbox
-                    detection.results.append(obj) 
-                    detection.id = str(0)                               # TODO add tracking IDs here. 
-                    keypoint = Keypoint2D()
-                    keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
-                    keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
-                    keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
-                    keypoint_msg.keypoints.append(keypoint)
-                    keypoint_msg.detections.append(detection)
-                self.publisher.publish(keypoint_msg)
-            else:
-                keypoint_msg = Keypoint2DArray()
-                keypoint_msg.header.stamp = self.header.stamp
-                keypoint_msg.header.frame_id = self.header.frame_id
-                self.publisher.publish(keypoint_msg)
-        elif self.operation_mode == 'image':
-            processed_image = self.orig  
-            img_msg = CvBridge().cv2_to_imgmsg(processed_image, encoding="bgr8")
-            img_msg.header.stamp = self.header.stamp
-            img_msg.header.frame_id = self.header.frame_id
-            self.publisher.publish(img_msg)
+                obj.hypothesis.class_id = classes[int(preds[i, 5].item())]
+                obj.hypothesis.score = np.round(preds[i, 4].item(), 2)
+                detection.bbox = bbox
+                detection.results.append(obj) 
+                detection.id = str(0)                               # TODO add tracking IDs here. 
+                keypoint = Keypoint2D()
+                keypoint.position.x = pred_kpts[kpt_idx, 0, 0].item()
+                keypoint.position.y = pred_kpts[kpt_idx, 0, 1].item()
+                keypoint.confidence = pred_kpts[kpt_idx, 0, 2].item()
+                keypoint_msg.keypoints.append(keypoint)
+                keypoint_msg.detections.append(detection)
+            self.publisher_array.publish(keypoint_msg)
+            preds = []
+            det = []
+        else:
+            keypoint_msg = Keypoint2DArray()
+            keypoint_msg.header.stamp = self.header.stamp
+            keypoint_msg.header.frame_id = self.header.frame_id
+            self.publisher_array.publish(keypoint_msg)
+            preds = []
+            det = []
+        # elif self.operation_mode == 'image':
+        processed_image = self.orig  
+        img_msg = CvBridge().cv2_to_imgmsg(processed_image, encoding="bgr8")
+        img_msg.header.stamp = self.header.stamp
+        img_msg.header.frame_id = self.header.frame_id
+        self.publisher_image.publish(img_msg)
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CropKeypointDetector(topic='/sensors/zed_r/zed_node/rgb/image_rect_color', mode='tensorrt')
+    node = CropKeypointDetector(topic='/sensors/zed_laser_module/zed_node/rgb/image_rect_color/compressed', mode='fp32')
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
