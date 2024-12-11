@@ -1,6 +1,6 @@
 FROM nvcr.io/nvidia/tensorrt:23.10-py3
 
-WORKDIR /ros2_ws/src/inference_ros2
+WORKDIR /home/niqbal/ros2_ws/src/inference_ros2
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -39,28 +39,65 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --upgrade pip && \
     python3 -m pip install -r /tmp/requirements.txt
 
-# Install ByteTrack
-WORKDIR /root/
-RUN git clone https://github.com/LALWeco/ByteTrack.git && \
-    cd ByteTrack && python3 setup.py develop
-
 # Install keypoint detection custom message definitions
-WORKDIR /ros2_ws/src/
+WORKDIR /home/niqbal/ros2_ws/src
 RUN git clone https://github.com/LALWeco/vision_msgs.git
 
 # Copy project files
 COPY . /ros2_ws/src/inference_ros2
 
 # Build ROS2 workspace
-WORKDIR /ros2_ws/
+WORKDIR /home/niqbal/ros2_ws/
 RUN . /opt/ros/humble/setup.sh && colcon build
 
-RUN echo "source /ros2_ws/install/setup.bash" >> ~/.bashrc
+RUN echo "source /home/niqbal/ros2_ws/install/setup.bash" >> ~/.bashrc
 
-WORKDIR /ros2_ws/src/inference_ros2
+WORKDIR /home/niqbal/ros2_ws/src/inference_ros2
+
+# Add non-root user
+ARG USERNAME=niqbal
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+RUN groupadd --gid $USER_GID $USERNAME \
+    && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
+    && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
+    && chmod 0440 /etc/sudoers.d/$USERNAME
+
+# Set up ROS workspace in the correct location
+WORKDIR /home/$USERNAME
+RUN mkdir -p ros2_ws/src
+
+# Install ByteTrack in the correct location
+WORKDIR /home/$USERNAME
+RUN git clone https://github.com/LALWeco/ByteTrack.git && \
+    cd ByteTrack && python3 setup.py develop
+
+# Set up color prompt and aliases properly
+RUN echo "PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" >> /home/$USERNAME/.bashrc && \
+    echo "force_color_prompt=yes" >> /home/$USERNAME/.bashrc && \
+    echo "alias ls='ls --color=auto'" >> /home/$USERNAME/.bashrc && \
+    echo "alias grep='grep --color=auto'" >> /home/$USERNAME/.bashrc
+
+# Source ROS in the correct user's bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc && \
+    echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc
+
+# Set ownership of all workspace files
+RUN chown -R $USERNAME:$USERNAME /home/$USERNAME
+
+# Create .ros directory with correct permissions
+RUN mkdir -p /home/$USERNAME/.ros && \
+    chown -R $USERNAME:$USERNAME /home/$USERNAME/.ros
+
+# Switch to non-root user
+USER $USERNAME
+
+# Set the working directory
+WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
 
 # Set the entrypoint
-ENTRYPOINT ["/ros2_ws/src/inference_ros2/entrypoint.sh"]
+ENTRYPOINT ["/home/niqbal/ros2_ws/src/inference_ros2/entrypoint.sh"]
 
 # Command to run when starting the container
 # CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt", "--ros-args", "-p", "operation_mode:=image"]

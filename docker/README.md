@@ -11,19 +11,34 @@ sudo -H DOCKER_BUILDKIT=1 docker build -f docker/amd64/Dockerfile_foxy -t niqbal
 ```
 Run the container
 ```bash
-docker run -it --runtime=nvidia --net=host --ipc=host -v /home/niqbal/ros2_ws:/root/ros2_ws -v /dev/shm:/dev/shm --name=infer_ros2_foxy niqbal996/inference_ros2:23.04-foxy-py3
+docker run -it --runtime=nvidia --net=host --ipc=host --env TERM=xterm-256color -v /home/niqbal/ros2_ws:/root/ros2_ws -v /dev/shm:/dev/shm --name=infer_ros2_foxy niqbal996/inference_ros2:23.04-foxy-py3
 ```
 
 ## ROS 2 Humble (Ubuntu 22.04)
 
 ```bash
 cd <root directory of this repo>
-sudo -H DOCKER_BUILDKIT=1 docker build -f docker/amd64/Dockerfile_humble -t niqbal996/inference_ros2:23.10-humble-py3 .
+sudo -H DOCKER_BUILDKIT=1 docker build \
+  --build-arg USERNAME=$USER \
+  --build-arg USER_UID=$(id -u) \
+  --build-arg USER_GID=$(id -g) \
+  -f docker/amd64/Dockerfile_humble \
+  -t niqbal996/inference_ros2:23.10-humble-py3 .
 ```
 Run the container
 ```bash
-docker run -it --runtime=nvidia --net=host --ipc=host -v /home/niqbal/ros2_ws:/root/ros2_ws -v /dev/shm:/dev/shm -e ROS_DOMAIN_ID --name=infer_ros2_humble niqbal996/inference_ros2:23.10-humble-py3
-ros2 run inference_ros2 keypoint_detector_trt --ros-args -p operation_mode:=image # alternative shell command
+docker run -it --runtime=nvidia \
+  --env TERM=xterm-256color \
+  --net=host \
+  --ipc=host \
+  -v /home/niqbal/ros2_ws:/home/niqbal/ros2_ws \
+  -v /dev/shm:/dev/shm \
+  -e DISPLAY=$DISPLAY \
+  --user $(id -u):$(id -g) \
+  --name=infer_ros2 \
+  niqbal996/inference_ros2:23.10-humble-py3 \
+  /bin/bash
+ros2 launch inference_ros2 keypoint_detector.launch.py
 ```
 
 # NVidia Driver and CUDA installation on Intel NUC

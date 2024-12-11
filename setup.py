@@ -3,6 +3,9 @@ from setuptools import setup
 from setuptools import find_packages
 from glob import glob
 package_name = 'inference_ros2'
+import warnings
+import setuptools.dist
+warnings.filterwarnings("ignore", category=UserWarning, module="setuptools.dist")
 
 setup(
     name=package_name,
