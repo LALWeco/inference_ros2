@@ -1,10 +1,8 @@
 import threading
 import time
 
-import cv2
 import numpy as np
 import rclpy
-import tf2_geometry_msgs
 import tf2_ros
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
@@ -206,8 +204,11 @@ class Point3DEstimator(Node):
         goal.header.frame_id = "laser_module_r"
         goal.header.stamp = self.get_clock().now().to_msg()
 
+        # These are magic values that seemed to work during testing
         goal.target_position = Point(
-            x=-point.x / 1000.0 + 0.028, y=point.y / 1000.0 + 0.148, z=-point.z / 1000.0
+            x=-point.x / 1000.0 + 0.028,
+            y=point.y / 1000.0 + 0.148,
+            z=-point.z / 1000.0,
         )
         goal.duration = 0.1  # Short duration just for aiming
         goal.beam_diameter = 0.0

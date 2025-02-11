@@ -29,7 +29,7 @@ from utils import (
     scale_coords,
     xywh2xyxy,
 )
-from utils.trt_utils import HostDeviceMem, TrtLogger, _cuda_error_check
+from utils.trt_utils import HostDeviceMem, TrtLogger
 
 classes = ["background", "crop", "weed"]
 kpt_shape = (1, 3)
