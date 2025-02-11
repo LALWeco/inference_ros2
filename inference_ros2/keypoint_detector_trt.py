@@ -31,6 +31,7 @@ from utils import (
 )
 from utils.trt_utils import HostDeviceMem, TrtLogger, _cuda_error_check
 
+classes = ["background", "crop", "weed"]
 kpt_shape = (1, 3)
 
 
@@ -177,44 +178,31 @@ class CropKeypointDetector(Node):
         return predictions
 
     def setup_IO_binding(self):
-        # Setup I/O bindings
         self.outputs = []
         self.bindings = []
         self.allocations = []
-        for binding_name, i in zip(self.engine, range(len(self.engine))):
-            is_input = False
+
+        for binding_idx in range(self.engine.num_bindings):
+            binding_name = self.engine.get_binding_name(binding_idx)
             dtype = trt.nptype(self.engine.get_tensor_dtype(binding_name))
             shape = self.engine.get_tensor_shape(binding_name)
-            if self.engine.get_tensor_mode(binding_name).name == "INPUT":
-                is_input = True
-                self.batch_size = int(
-                    trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH
-                )  # self.engine.max_batch_size #shape[0]
-                self.input_shape = shape
-                self.input_dtype = dtype
             size = trt.volume(shape)
-            if self.engine.has_implicit_batch_dimension:
-                size *= self.batch_size
-            # Here the size argument is the length of the flattened array and not the byte size
+
+            # Allocate memory
             host_mem = cuda.pagelocked_empty(size, dtype)
             device_mem = cuda.mem_alloc(host_mem.nbytes)
             self.bindings.append(int(device_mem))
 
-            if self.engine.get_tensor_mode(binding_name).name == "INPUT":
+            # Handle input/output separately
+            if self.engine.binding_is_input(binding_idx):
                 self.input = HostDeviceMem(host_mem, device_mem)
-                # TODO Deprecated warning remove in future
-                self.trt_context.set_binding_shape(i, [j for j in shape])
-                # self.trt_context.set_input_shape(binding_name, [j for j in shape])
-            elif self.engine.get_tensor_mode(binding_name).name == "OUTPUT":
-                self.outputs.append(HostDeviceMem(host_mem, device_mem))
-                self.trt_context.set_binding_shape(i, [j for j in shape])
-                # TODO Deprecated warning remove in future
-                # self.trt_context.set_input_shape(binding_name, [j for j in shape])
-                self.output_shape = shape
+                self.input_shape = shape
+                self.input_dtype = dtype
+                self.trt_context.set_binding_shape(binding_idx, shape)
             else:
-                pass
+                self.outputs.append(HostDeviceMem(host_mem, device_mem))
+                self.output_shape = shape
 
-        # print(self.trt_context.all_binding_shapes_specified)
         self.stream = cuda.Stream()
         assert len(self.outputs) > 0
         assert len(self.bindings) > 0
