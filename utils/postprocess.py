@@ -1,8 +1,11 @@
+import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
 import torchvision
-import numpy as np
-import cv2
+
+class_dict = {0: "background", 1: "crop", 2: "weed"}
+
 
 def box_iou(box1, box2, eps=1e-7):
     # https://github.com/pytorch/vision/blob/master/torchvision/ops/boxes.py
@@ -24,9 +27,11 @@ def box_iou(box1, box2, eps=1e-7):
     # IoU = inter / (area1 + area2 - inter)
     return inter / (box_area(box1.T)[:, None] + box_area(box2.T) - inter + eps)
 
+
 def box_area(box):
     # box = xyxy(4,n)
     return (box[2] - box[0]) * (box[3] - box[1])
+
 
 def crop(masks, boxes):
     """
@@ -40,10 +45,15 @@ def crop(masks, boxes):
 
     n, h, w = masks.shape
     x1, y1, x2, y2 = torch.chunk(boxes[:, :, None], 4, 1)  # x1 shape(1,1,n)
-    r = torch.arange(w, device=masks.device, dtype=x1.dtype)[None, None, :]  # rows shape(1,w,1)
-    c = torch.arange(h, device=masks.device, dtype=x1.dtype)[None, :, None]  # cols shape(h,1,1)
+    r = torch.arange(w, device=masks.device, dtype=x1.dtype)[
+        None, None, :
+    ]  # rows shape(1,w,1)
+    c = torch.arange(h, device=masks.device, dtype=x1.dtype)[
+        None, :, None
+    ]  # cols shape(h,1,1)
 
     return masks * ((r >= x1) * (r < x2) * (c >= y1) * (c < y2))
+
 
 def process_mask_upsample(protos, masks_in, bboxes, shape):
     """
@@ -58,9 +68,12 @@ def process_mask_upsample(protos, masks_in, bboxes, shape):
 
     c, mh, mw = protos.shape  # CHW
     masks = (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)
-    masks = F.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
+    masks = F.interpolate(masks[None], shape, mode="bilinear", align_corners=False)[
+        0
+    ]  # CHW
     masks = crop(masks, bboxes)  # CHW
     return masks.gt_(0.5)
+
 
 def xywh2xyxy(x):
     # Convert nx4 boxes from [cx, cy, w, h] to [xtl, ytl, xbr, ybr] where tl=top-left, br=bottom-right
@@ -71,6 +84,7 @@ def xywh2xyxy(x):
     y[:, 3] = x[:, 1] + x[:, 3] / 2  # bottom right y
     return y
 
+
 def xyxy2xywh(x):
     # Convert nx4 boxes from [x1, y1, x2, y2] to [cx, cy, w, h] where xy1=top-left, xy2=bottom-right
     y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
@@ -79,6 +93,7 @@ def xyxy2xywh(x):
     y[:, 2] = x[:, 2] - x[:, 0]  # width
     y[:, 3] = x[:, 3] - x[:, 1]  # height
     return y
+
 
 # def cxcywh2xyxy(boxes):
 #     c_x = boxes[:, 0]
@@ -92,6 +107,7 @@ def xyxy2xywh(x):
 #     y_max = c_y + (h / 2)
 
 #     return torch.concatenate((x_min[:,None], y_min[:,None], x_max[:,None], y_max[:,None], boxes[:, 4:]), axis=1)
+
 
 def process_mask(protos, masks_in, bboxes, shape, upsample=False):
     """
@@ -109,7 +125,9 @@ def process_mask(protos, masks_in, bboxes, shape, upsample=False):
         c, mh, mw = protos.shape  # CHW
         ih, iw = shape
         protos = torch.tensor(protos, dtype=torch.float32)
-        masks = (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)  # CHW
+        masks = (
+            (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)
+        )  # CHW
 
         downsampled_bboxes = bboxes.clone()
         downsampled_bboxes[:, 0] *= mw / iw
@@ -119,19 +137,22 @@ def process_mask(protos, masks_in, bboxes, shape, upsample=False):
 
         masks = crop(masks, downsampled_bboxes)  # CHW
         if upsample:
-            masks = F.interpolate(masks[None], shape, mode='bilinear', align_corners=False)[0]  # CHW
+            masks = F.interpolate(
+                masks[None], shape, mode="bilinear", align_corners=False
+            )[0]  # CHW
         return masks.gt_(0.5)
 
+
 def non_max_suppression(
-        prediction,
-        conf_thres=0.25,
-        iou_thres=0.45,
-        classes=None,
-        agnostic=False,
-        multi_label=False,
-        labels=(),
-        max_det=300,
-        nm=0,  # number of masks
+    prediction,
+    conf_thres=0.25,
+    iou_thres=0.45,
+    classes=None,
+    agnostic=False,
+    multi_label=False,
+    labels=(),
+    max_det=300,
+    nm=0,  # number of masks
 ):
     """Non-Maximum Suppression (NMS) on inference results to reject overlapping detections
 
@@ -144,8 +165,12 @@ def non_max_suppression(
     xc = prediction[..., 4] > conf_thres  # candidates
 
     # Checks
-    assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
-    assert 0 <= iou_thres <= 1, f'Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0'
+    assert (
+        0 <= conf_thres <= 1
+    ), f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
+    assert (
+        0 <= iou_thres <= 1
+    ), f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
 
     # Settings
     # min_wh = 2  # (pixels) minimum box width and height
@@ -179,7 +204,9 @@ def non_max_suppression(
         x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
 
         # Box/Mask
-        box = xywh2xyxy(x[:, :4])  # center_x, center_y, width, height) to (x1, y1, x2, y2)
+        box = xywh2xyxy(
+            x[:, :4]
+        )  # center_x, center_y, width, height) to (x1, y1, x2, y2)
         mask = x[:, mi:]  # zero columns if no masks
 
         # Detections matrix nx6 (xyxy, conf, cls)
@@ -213,11 +240,13 @@ def non_max_suppression(
         i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
         if i.shape[0] > max_det:  # limit detections
             i = i[:max_det]
-        if merge and (1 < n < 3E3):  # Merge NMS (boxes merged using weighted mean)
+        if merge and (1 < n < 3e3):  # Merge NMS (boxes merged using weighted mean)
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[i], boxes) > iou_thres  # iou matrix
             weights = iou * scores[None]  # box weights
-            x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)  # merged boxes
+            x[i, :4] = torch.mm(weights, x[:, :4]).float() / weights.sum(
+                1, keepdim=True
+            )  # merged boxes
             if redundant:
                 i = i[iou.sum(1) > 1]  # require redundancy
 
@@ -225,20 +254,21 @@ def non_max_suppression(
         output[xi][:, :4] = xyxy2xywh(output[xi][:, :4])
     return output
 
+
 # source https://github.com/ultralytics/ultralytics/blob/main/ultralytics/utils/ops.py TODO check license!!!!
 def non_max_suppression_v8(
-        prediction,
-        conf_thres=0.25,
-        iou_thres=0.45,
-        classes=None,
-        agnostic=False,
-        multi_label=False,
-        labels=(),
-        max_det=300,
-        nc=0,  # number of classes (optional)
-        max_time_img=0.05,
-        max_nms=30000,
-        max_wh=7680,
+    prediction,
+    conf_thres=0.25,
+    iou_thres=0.45,
+    classes=None,
+    agnostic=False,
+    multi_label=False,
+    labels=(),
+    max_det=300,
+    nc=0,  # number of classes (optional)
+    max_time_img=0.05,
+    max_nms=30000,
+    max_wh=7680,
 ):
     """
     Perform non-maximum suppression (NMS) on a set of boxes, with support for masks and multiple labels per box.
@@ -271,14 +301,20 @@ def non_max_suppression_v8(
     """
 
     # Checks
-    prediction = torch.tensor(prediction, device='cpu')
-    assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
-    assert 0 <= iou_thres <= 1, f'Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0'
-    if isinstance(prediction, (list, tuple)):  # YOLOv8 model in validation model, output = (inference_out, loss_out)
+    prediction = torch.tensor(prediction, device="cpu")
+    assert (
+        0 <= conf_thres <= 1
+    ), f"Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0"
+    assert (
+        0 <= iou_thres <= 1
+    ), f"Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0"
+    if isinstance(
+        prediction, (list, tuple)
+    ):  # YOLOv8 model in validation model, output = (inference_out, loss_out)
         prediction = prediction[0]  # select only inference output
 
     device = prediction.device
-    mps = 'mps' in device.type  # Apple MPS
+    mps = "mps" in device.type  # Apple MPS
     if mps:  # MPS not fully supported yet, convert tensors to CPU before NMS
         prediction = prediction.cpu()
     bs = prediction.shape[0]  # batch size
@@ -332,7 +368,9 @@ def non_max_suppression_v8(
         if not n:  # no boxes
             continue
         if n > max_nms:  # excess boxes
-            x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
+            x = x[
+                x[:, 4].argsort(descending=True)[:max_nms]
+            ]  # sort by confidence and remove excess boxes
 
         # Batched NMS
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
@@ -358,72 +396,43 @@ def non_max_suppression_v8(
 
     return output
 
-def scale_boxes(box, source_dim=(512,512), orig_size=(760, 1280), padded=False):
-        '''
-        box: Bounding box generated for the model input size (e.g. 512 x 512) which was fed to the model. 
-        source_dim : The size of input image fed to the model. 
-        orig_size : The size of the input image fetched from the ROS publisher. 
-        padded: If True, source_dim must be changed to p_h, p_w of image i.e. the image dimensions without the padded dimensions. 
-        return: Scaled bounding box according to the input image from the ROS topic.
-        '''
-        # if padded:
-        #     xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
-        #                box[:, 2] * (orig_size[1] / source_dim[1])
-        #     ytl, ybr = box[:, 1] * (orig_size[0] / source_dim[0]), \
-        #                box[:, 3] * (orig_size[0] / source_dim[0])
-        # else:
-        #     xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
-        #                box[:, 2] * (orig_size[1] / source_dim[1])
-        #     ytl, ybr = box[:, 1] * orig_size[0] / self.input_size[0], \
-        #                box[:, 3] * orig_size[0] / self.input_size[0]
-        xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
-                       box[:, 2] * (orig_size[1] / source_dim[1])
-        ytl, ybr = box[:, 1] * (orig_size[0] / source_dim[0]), \
-                    box[:, 3] * (orig_size[0] / source_dim[0])
-        xtl = np.reshape(xtl, (len(xtl), 1))
-        xbr = np.reshape(xbr, (len(xbr), 1))
-
-        ytl = np.reshape(ytl, (len(ytl), 1))
-        ybr = np.reshape(ybr, (len(ybr), 1))
-
-        return torch.concatenate((xtl, ytl, xbr, ybr), axis=1)
 
 def remove_overlapping_boxes(boxes, iou_threshold):
     """
     Remove overlapping bounding boxes based on IoU threshold.
-    
+
     Args:
     boxes (np.array): Array of bounding boxes in format [xtl, ytl, xbr, ybr]
     iou_threshold (float): IoU threshold for considering boxes as overlapping
-    
+
     Returns:
-    list: List of boxes to keep 
+    list: List of boxes to keep
     """
-    
+
     def calculate_iou(box1, box2):
         """Calculate IoU of two bounding boxes."""
         x1 = max(box1[0], box2[0])
         y1 = max(box1[1], box2[1])
         x2 = min(box1[2], box2[2])
         y2 = min(box1[3], box2[3])
-        
+
         intersection = max(0, x2 - x1) * max(0, y2 - y1)
         area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
         area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
-        
+
         iou = intersection / (area1 + area2 - intersection)
         return iou
-    
+
     if len(boxes) == 0:
         return np.array([])
-    
+
     # Sort boxes by area (largest first)
     areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
     sorted_indices = np.argsort(areas).tolist()
     sorted_indices.reverse()  # Reverse the order to get largest first
-    
+
     keep = []
-    
+
     for i in range(len(boxes)):
         should_keep = True
         for j in keep:
@@ -432,8 +441,92 @@ def remove_overlapping_boxes(boxes, iou_threshold):
                 break
         if should_keep:
             keep.append(i)
-    
+
     return keep
+
+
+def scale_boxes(box, source_dim=(512, 512), orig_size=(760, 1280), padded=False):
+    """
+    box: Bounding box generated for the model input size (e.g. 512 x 512) which was fed to the model.
+    source_dim : The size of input image fed to the model.
+    orig_size : The size of the input image fetched from the ROS publisher.
+    padded: If True, source_dim must be changed to p_h, p_w of image i.e. the image dimensions without the padded dimensions.
+    return: Scaled bounding box according to the input image from the ROS topic.
+    """
+    # if padded:
+    #     xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
+    #                box[:, 2] * (orig_size[1] / source_dim[1])
+    #     ytl, ybr = box[:, 1] * (orig_size[0] / source_dim[0]), \
+    #                box[:, 3] * (orig_size[0] / source_dim[0])
+    # else:
+    #     xtl, xbr = box[:, 0] * (orig_size[1] / source_dim[1]), \
+    #                box[:, 2] * (orig_size[1] / source_dim[1])
+    #     ytl, ybr = box[:, 1] * orig_size[0] / self.input_size[0], \
+    #                box[:, 3] * orig_size[0] / self.input_size[0]
+    xtl, xbr = (
+        box[:, 0] * (orig_size[1] / source_dim[1]),
+        box[:, 2] * (orig_size[1] / source_dim[1]),
+    )
+    ytl, ybr = (
+        box[:, 1] * (orig_size[0] / source_dim[0]),
+        box[:, 3] * (orig_size[0] / source_dim[0]),
+    )
+    xtl = np.reshape(xtl, (len(xtl), 1))
+    xbr = np.reshape(xbr, (len(xbr), 1))
+
+    ytl = np.reshape(ytl, (len(ytl), 1))
+    ybr = np.reshape(ybr, (len(ybr), 1))
+
+    return torch.concatenate((xtl, ytl, xbr, ybr), axis=1)
+
+
+def remove_overlapping_boxes(boxes, iou_threshold):
+    """
+    Remove overlapping bounding boxes based on IoU threshold.
+
+    Args:
+    boxes (np.array): Array of bounding boxes in format [xtl, ytl, xbr, ybr]
+    iou_threshold (float): IoU threshold for considering boxes as overlapping
+
+    Returns:
+    list: List of boxes to keep
+    """
+
+    def calculate_iou(box1, box2):
+        """Calculate IoU of two bounding boxes."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
+
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+
+        iou = intersection / (area1 + area2 - intersection)
+        return iou
+
+    if len(boxes) == 0:
+        return np.array([])
+
+    # Sort boxes by area (largest first)
+    areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+    sorted_indices = np.argsort(areas).tolist()
+    sorted_indices.reverse()  # Reverse the order to get largest first
+
+    keep = []
+
+    for i in range(len(boxes)):
+        should_keep = True
+        for j in keep:
+            if calculate_iou(boxes[i], boxes[j]) > iou_threshold:
+                should_keep = False
+                break
+        if should_keep:
+            keep.append(i)
+
+    return keep
+
 
 def clip_boxes(boxes, shape):
     """
@@ -452,7 +545,10 @@ def clip_boxes(boxes, shape):
         boxes[..., [0, 2]] = boxes[..., [0, 2]].clip(0, shape[1])  # x1, x2
         boxes[..., [1, 3]] = boxes[..., [1, 3]].clip(0, shape[0])  # y1, y2
 
-def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, normalize=False, padding=True):
+
+def scale_coords(
+    img1_shape, coords, img0_shape, ratio_pad=None, normalize=False, padding=True
+):
     """
     Rescale segment coordinates (xy) from img1_shape to img0_shape.
 
@@ -469,8 +565,13 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, normalize=False
         coords (torch.Tensor): The scaled coordinates.
     """
     if ratio_pad is None:  # calculate from img0_shape
-        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
-        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
+        gain = min(
+            img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1]
+        )  # gain  = old / new
+        pad = (
+            (img1_shape[1] - img0_shape[1] * gain) / 2,
+            (img1_shape[0] - img0_shape[0] * gain) / 2,
+        )  # wh padding
     else:
         gain = ratio_pad[0][0]
         pad = ratio_pad[1]
@@ -485,6 +586,7 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None, normalize=False
         coords[..., 0] /= img0_shape[1]  # width
         coords[..., 1] /= img0_shape[0]  # height
     return coords
+
 
 def clip_coords(coords, shape):
     """
@@ -504,101 +606,127 @@ def clip_coords(coords, shape):
         coords[..., 0] = coords[..., 0].clip(0, shape[1])  # x
         coords[..., 1] = coords[..., 1].clip(0, shape[0])  # y
 
-def plot(boxes, keypoints, cv_image, mode='track'):
-    cv_image = plot_boxes(boxes, cv_image, mode=mode) 
+
+def plot(boxes, keypoints, cv_image, mode="track"):
+    cv_image = plot_boxes(boxes, cv_image, mode=mode)
     if keypoints is not None:
-        cv_image = plot_kpts(keypoints, cv_image)                 
-    cv2.imshow('prediction', cv_image)
-    cv2.waitKey(1)
+        cv_image = plot_kpts(keypoints, cv_image)
+    # cv2.imshow('prediction', cv_image)
+    # cv2.waitKey(1)
     return cv_image
 
-def plot_boxes(boxes, cv_image, mode='det'):
+
+def plot_boxes(boxes, cv_image, mode="det"):
     """
-    boxes : [xtl, ytl, xbr, ybr] 
-    cv_image : cv image in HWC format on which cv functions can operate. 
+    boxes : [xtl, ytl, xbr, ybr]
+    cv_image : cv image in HWC format on which cv functions can operate.
     mode = 'det' or 'track'
     """
-    if mode=='track':
+    if mode == "track":
         tracks = boxes.copy()
         boxes = np.array([track.tlbr for track in boxes])
         # boxes = xywh2xyxy(boxes) This is not needed and only kept for debugging
-        for box_idx in range(boxes.shape[0]):  
+        for box_idx in range(boxes.shape[0]):
             box = boxes[box_idx, :]
             # if tracklet.score < 1.0:
             #     color = (0, 0, 255)
             # else:
             #     color = (255, 0, 0)
             color = (0, 0, 255)
-            text = '{} {}'.format('canola', int(tracks[box_idx].track_id)) # TODO dynamically assign classes in a multi class scenarios
+            text = "{} {}".format(
+                "canola", int(tracks[box_idx].track_id)
+            )  # TODO dynamically assign classes in a multi class scenarios
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
-            if int(box[1] - 25) < 10:   # if box is at the top then put label at bottom right corner.
-                cv2.rectangle(cv_image, 
-                            pt1=(int(box[2] - tw), int(box[3])),
-                            pt2=(int(box[2]), int(box[3] + 25)),
-                            color=color, 
-                            thickness=-1) # solid background rectangle
-                cv2.putText(cv_image,
-                        text,
-                        org=(int(box[2] - tw + 1), int(box[3] + 20)),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.9,
-                        thickness=2,
-                        color=(255, 255, 255))
+            if (
+                int(box[1] - 25) < 10
+            ):  # if box is at the top then put label at bottom right corner.
+                cv2.rectangle(
+                    cv_image,
+                    pt1=(int(box[2] - tw), int(box[3])),
+                    pt2=(int(box[2]), int(box[3] + 25)),
+                    color=color,
+                    thickness=-1,
+                )  # solid background rectangle
+                cv2.putText(
+                    cv_image,
+                    text,
+                    org=(int(box[2] - tw + 1), int(box[3] + 20)),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.9,
+                    thickness=2,
+                    color=(255, 255, 255),
+                )
             else:
-                cv2.rectangle(cv_image, 
-                            pt1=(int(box[0]), int(box[1] - 25)),
-                            pt2=(int(box[0] + tw), int(box[1])),
-                            color=color, 
-                            thickness=-1) # solid background rectangle
-                cv2.putText(cv_image,
-                        text,
-                        org=(int(box[0]), int(box[1] - 5)),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.9,
-                        thickness=2,
-                        color=(255, 255, 255))
-            cv2.rectangle(cv_image,
-                        pt1=(int(box[0]), int(box[1])),
-                        pt2=(int(box[2]), int(box[3])),
-                        color=color,
-                        thickness=2)
-            
+                cv2.rectangle(
+                    cv_image,
+                    pt1=(int(box[0]), int(box[1] - 25)),
+                    pt2=(int(box[0] + tw), int(box[1])),
+                    color=color,
+                    thickness=-1,
+                )  # solid background rectangle
+                cv2.putText(
+                    cv_image,
+                    text,
+                    org=(int(box[0]), int(box[1] - 5)),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.9,
+                    thickness=2,
+                    color=(255, 255, 255),
+                )
+            cv2.rectangle(
+                cv_image,
+                pt1=(int(box[0]), int(box[1])),
+                pt2=(int(box[2]), int(box[3])),
+                color=color,
+                thickness=2,
+            )
+
             # cv2.rectangle(cv_image, (50, 50), (400, 400), (0, 255, 0), 2)
     else:
-        boxes = xywh2xyxy(boxes)
+        # boxes = xywh2xyxy(boxes)
         color = (255, 0, 0)
-        for obj in range(boxes.shape[0]):  
-            box = boxes[obj, :]   
+        for obj in range(boxes.shape[0]):
+            box = boxes[obj, :]
             # if boxes[obj, 5] == 2:
             #     color = (0, 0, 255)
             # else:
             #     color = (255, 0, 0)
-            cv2.rectangle(cv_image,
-                        pt1=(int(box[0]), int(box[1])),
-                        pt2=(int(box[2]), int(box[3])),
-                        color=color,
-                        thickness=2)
-            class_ids = {1: 'crop', 2: 'weed'}
-            text = '{} {:.2f}'.format(class_ids[int(boxes[obj, 5].item())], box[4].item()) # TODO dynamically assign classes in a multi class scenarios
+            cv2.rectangle(
+                cv_image,
+                pt1=(int(box[0]), int(box[1])),
+                pt2=(int(box[2]), int(box[3])),
+                color=color,
+                thickness=2,
+            )
+            text = "{} {:.2f}".format(
+                class_dict[int(box[5].item())], box[4].item()
+            )  # TODO dynamically assign classes in a multi class scenarios
             (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)
-            cv2.rectangle(cv_image, 
-                        pt1=(int(box[0]), int(box[1] - 25)),
-                        pt2=(int(box[0] + tw), int(box[1])),
-                        color=color, 
-                        thickness=-1) # solid background rectangle
-            cv2.rectangle(cv_image,
-                        pt1=(int(box[0]), int(box[1])),
-                        pt2=(int(box[2]), int(box[3])),
-                        color=color,
-                        thickness=2)
-            cv2.putText(cv_image,
-                        text,
-                        org=(int(box[0]), int(box[1] - 5)),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.9,
-                        thickness=2,
-                        color=(255, 255, 255))
+            cv2.rectangle(
+                cv_image,
+                pt1=(int(box[0]), int(box[1] - 25)),
+                pt2=(int(box[0] + tw), int(box[1])),
+                color=color,
+                thickness=-1,
+            )  # solid background rectangle
+            cv2.rectangle(
+                cv_image,
+                pt1=(int(box[0]), int(box[1])),
+                pt2=(int(box[2]), int(box[3])),
+                color=color,
+                thickness=2,
+            )
+            cv2.putText(
+                cv_image,
+                text,
+                org=(int(box[0]), int(box[1] - 5)),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.9,
+                thickness=2,
+                color=(255, 255, 255),
+            )
     return cv_image
+
 
 def plot_kpts(kpts, cv_image):
     kpts = np.reshape(kpts, (kpts.shape[0], kpts.shape[2]))
@@ -614,7 +742,14 @@ def plot_kpts(kpts, cv_image):
             conf = k[2]
             if conf < 0.5:
                 continue
-        cv2.circle(cv_image, (int(x_coord), int(y_coord)), radius, color_k, -1, lineType=cv2.LINE_AA)
+        cv2.circle(
+            cv_image,
+            (int(x_coord), int(y_coord)),
+            radius,
+            color_k,
+            -1,
+            lineType=cv2.LINE_AA,
+        )
     # This will not be triggered for a single keypoint
     # if kpt_line:
     #     ndim = kpts.shape[-1]

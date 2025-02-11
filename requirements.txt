@@ -1,8 +1,9 @@
 imutils 
 torchvision==0.14.0
-opencv-python 
-opencv-contrib-python
-torchvision==0.17
-lap 
-cython_bbox
+opencv-python==4.10.0.84
+opencv-contrib-python==4.10.0.84
+lap==0.4.0
+thop
+loguru==0.7.2
+cython_bbox==0.1.5
 onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/

@@ -1,0 +1,21 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "ROS: Launch",
+            "type": "ros",
+            "request": "launch",
+            "target": "${workspaceFolder}/src/inference_ros2/launch/keypoint_detector.launch.py"
+        },
+        {
+            "name": "Debug: Keypoint Detector",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/inference_ros2/inference_ros2/keypoint_detector_trt.py",
+            "console": "integratedTerminal"
+        }
+    ]
+}

@@ -3,6 +3,9 @@ from setuptools import setup
 from setuptools import find_packages
 from glob import glob
 package_name = 'inference_ros2'
+import warnings
+import setuptools.dist
+warnings.filterwarnings("ignore", category=UserWarning, module="setuptools.dist")
 
 setup(
     name=package_name,
@@ -24,8 +27,8 @@ setup(
     entry_points={
         'console_scripts': [
             'instance_detector = inference_ros2.instance_detector:main',
-            'keypoint_detector = inference_ros2.keypoint_detector:main',
-            'bbox_detector = inference_ros2.object_detector:main'
+            'keypoint_detector_trt = inference_ros2.keypoint_detector_trt:main',
+            'target_3d_keypoint_estimation = inference_ros2.3d_keypoint_estimation:main'
         ],
     },
 )
