@@ -12,13 +12,9 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image
 
 # message definitions
-from vision_msgs.msg import (
-    BoundingBox2D,
-    Detection2D,
-    Keypoint2D,
-    Keypoint2DArray,
-    ObjectHypothesisWithPose,
-)
+from vision_msgs.msg import BoundingBox2D,Detection2D,ObjectHypothesisWithPose
+from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
+scipy # ByteTrack dependency that somehow does not get autoinstalled by its setup.py??
 from yolox.tracker.byte_tracker import BYTETracker
 
 from utils import (
@@ -121,9 +117,7 @@ class CropKeypointDetector(Node):
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
         self.engine_path = os.path.join(
-            "/root/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-{}-23.10-800.engine".format(
-                mode
-            )
+            f"/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-ws-{mode}-23.10-800.engine"
         )
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)

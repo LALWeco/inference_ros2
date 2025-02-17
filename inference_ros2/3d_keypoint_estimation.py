@@ -11,7 +11,7 @@ from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
-from vision_msgs.msg import Keypoint2DArray, Keypoint3D, Keypoint3DArray
+from lalweco_perception_msgs.msg import Keypoint2DArray, Keypoint3D, Keypoint3DArray
 
 
 class Point3DEstimator(Node):

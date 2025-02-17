@@ -2,16 +2,24 @@
 A ROS 2 based generic inference module
 
 # Installation
-## ROS1 Bridge
+## Preparing the model files
+TensorRT uses `.engine` files to achieve its fast model performance. These files only work on the GPU architecture that they were created on. This means `.engine` files that were e.g. created on a RTX 4090 cannot be used on the robot, which uses an RTX 2060. 
+
+Get the trained model file (yolov8-keypoint-det-cropweed.onnx) from ? and put it in the `model` folder.
+The following command will mount the `.onnx` model file into the TensorRT docker container and its included `trtexec` cli tool will convert the `.onnx` file into the platform dependent `.engine.` file. By included the `--user` flag the saved model will have the correct owner and not be owned by `root`.
+
 ```bash
-sudo apt install ros-foxy-ros1-bridge 
-# we need to source both ros1 and ros2 for the bridge to work
-source /opt/ros/noetic/setup.bash 
-source /opt/ros/foxy/setup.bash 
-# Check all the bridge topic pairs
-ros2 run ros1_bridge dynamic_bridge --print-pairs 
-# Run the ros1_bridge 
-ros2 run ros1_bridge dynamic_bridge --bridge-alltopics
+cd model
+
+docker run --gpus all \
+    --user $(id -u):$(id -g) \
+    -v .:/models \
+    nvcr.io/nvidia/tensorrt:23.10-py3 \
+    trtexec --onnx=/models/yolov8-keypoint-det-cropweed.onnx \
+    --saveEngine=/models/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine \
+    --memPoolSize=workspace:5000
+
+chmod +x yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine 
 ```
 
 Fetch dependencies before building package

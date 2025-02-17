@@ -1,0 +1,107 @@
+FROM nvcr.io/nvidia/tensorrt:23.10-py3
+
+# Add non-root user
+ARG USERNAME=docker
+ARG USER_UID=1000
+ARG USER_GID=1000
+
+# RUN groupadd --gid $USER_GID docker \
+#     && useradd --uid $USER_UID --gid $USER_GID -m docker \
+#     && echo docker ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/docker \
+#     && chmod 0440 /etc/sudoers.d/docker
+
+# Set environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV ROS_DISTRO=humble
+ENV LANG=en_US.UTF-8
+
+# Set shell
+SHELL ["/bin/bash", "-c"]
+
+# Install system dependencies
+ARG PACKAGES="wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6 locales qtbase5-dev qtdeclarative5-dev"
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends $PACKAGES && \
+    apt-add-repository universe && \
+    apt-add-repository multiverse && \
+    apt-add-repository restricted && \
+    locale-gen en_US en_US.UTF-8 && \
+    update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install ROS2
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
+    apt-get update && \
+    apt-get install -y ros-humble-ros-base ros-dev-tools ros-humble-rviz-common ros-humble-rviz-default-plugins python3-argcomplete && \
+    rm -rf /var/lib/apt/lists/* && \
+    rosdep init && \
+    rosdep update
+
+RUN groupadd --gid $USER_GID docker \
+    && useradd --uid $USER_UID --gid $USER_GID -m docker \
+    && usermod -aG sudo docker \
+    && echo "root:docker" | chpasswd \
+    && echo "docker:docker" | chpasswd
+
+# Install Python dependencies
+COPY --chown=docker inference_ros2/requirements.txt /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r /tmp/requirements.txt
+
+# Still requires root priviledges
+# Install ByteTrack in the correct location
+WORKDIR /home/docker
+RUN git clone https://github.com/LALWeco/ByteTrack.git && \
+    cd ByteTrack && python3 setup.py develop
+
+RUN echo "source /opt/ros/humble/setup.bash" >> /home/docker/.bashrc && \
+    echo "source /home/docker/ros2_ws/install/setup.bash" >> /home/docker/.bashrc
+
+USER docker
+# Install keypoint detection custom message definitions
+WORKDIR /home/docker/ros2_ws/src
+# RUN git clone https://github.com/LALWeco/vision_msgs.git
+# RUN git clone https://github.com/LALWeco/lalweco_laser_module_ros.git
+
+WORKDIR /home/docker/ros2_ws/
+# Copy project files
+COPY --chown=docker inference_ros2 src/inference_ros2/
+COPY --chown=docker lalweco_perception_msgs src/lalweco_perception_msgs/
+COPY --chown=docker lalweco_laser_module_ros src/lalweco_laser_module_ros/
+
+# RUN rosdep install --from-paths src --ignore-src -r -y
+
+# Build ROS2 workspace
+USER root
+
+RUN apt-get update && \
+    rosdep update && \
+    rosdep install --from-paths src --ignore-src -r -y
+
+USER docker
+RUN . /opt/ros/humble/setup.sh && colcon build
+
+# Set ownership of all workspace files
+# RUN chown -R docker:docker /home/docker
+
+# Create .ros directory with correct permissions
+# RUN mkdir -p /home/docker/.ros && \
+#     chown -R docker:docker /home/docker/.ros
+
+# Switch to non-root user
+
+# Set the working directory
+WORKDIR /home/docker/ros2_ws/src/inference_ros2
+
+# Set the entrypoint
+# ENTRYPOINT ["/home/docker/ros2_ws/src/inference_ros2/entrypoint.sh"]
+
+# Command to run when starting the container
+# CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt", "--ros-args", "-p", "operation_mode:=image"]
+CMD ["ros2", "launch", "inference_ros2", "keypoint_detector.launch.py"]
