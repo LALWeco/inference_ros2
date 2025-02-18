@@ -1,12 +1,17 @@
+import threading
+import time
+
 import numpy as np
 import rclpy
 import tf2_ros
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
-from lalweco_perception_msgs.msg import Keypoint2DArray, Keypoint3D, Keypoint3DArray
+from lalweco_laser_module_msgs.action import ControlLaser
 from message_filters import ApproximateTimeSynchronizer, Subscriber
+from rclpy.action import ActionClient
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
+from lalweco_perception_msgs.msg import Keypoint2DArray, Keypoint3D, Keypoint3DArray
 
 
 class Point3DEstimator(Node):
@@ -16,13 +21,13 @@ class Point3DEstimator(Node):
         self.bridge = CvBridge()
 
         if use_depth:
-            self.declare_parameter(
-                "depth_image_topic", "/sensors/zed_laser_module/zed_node/depth/depth_registered"
-            )
-            depth_image_topic = self.get_parameter("depth_image_topic").value
             # Synchronized subscribers
-            self.keypoint_sub = Subscriber(self, Keypoint2DArray, "/inference/Keypoint2DDetArray")
-            self.depth_sub = Subscriber(self, Image, depth_image_topic)
+            self.keypoint_sub = Subscriber(
+                self, Keypoint2DArray, "/inference/Keypoint2DDetArray"
+            )
+            self.depth_sub = Subscriber(
+                self, Image, "/sensors/zed_laser_module/zed_node/depth/depth_registered"
+            )
 
             # Synchronize messages within 0.1 seconds
             self.ts = ApproximateTimeSynchronizer(
@@ -61,7 +66,16 @@ class Point3DEstimator(Node):
         self.camera_matrix = None
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.point3d_pub = self.create_publisher(Keypoint3DArray, "/cropweed/keypoints_3d", 10)
+        self.point3d_pub = self.create_publisher(
+            Keypoint3DArray, "/cropweed/keypoints_3d", 10
+        )
+
+        # Add laser control action client
+        self._control_laser_event = threading.Event()
+        self._control_laser_action = ActionClient(
+            self, ControlLaser, "/lalweco_laser_module_driver/control_laser"
+        )
+        self._target_id = 0
 
     def sync_callback(self, keypoint_msg, depth_msg):
         self.latest_depth = self.bridge.imgmsg_to_cv2(depth_msg)
@@ -77,11 +91,15 @@ class Point3DEstimator(Node):
         keypoint3d_array = Keypoint3DArray()
         keypoint3d_array.header = msg.header
 
+        if not msg.keypoints:
+            return
+
         # Find the keypoint closest to the center
         center_x, center_y = self.camera_matrix[0, 2], self.camera_matrix[1, 2]
         closest_keypoint = min(
             msg.keypoints,
-            key=lambda kp: (kp.position.x - center_x) ** 2 + (kp.position.y - center_y) ** 2,
+            key=lambda kp: (kp.position.x - center_x) ** 2
+            + (kp.position.y - center_y) ** 2,
         )
 
         point3d = (
@@ -177,6 +195,39 @@ class Point3DEstimator(Node):
         point.z = 0.0
 
         return point
+
+    def send_laser_control(self, point):
+        goal = ControlLaser.Goal()
+        goal.target_id = self._target_id
+        self._target_id += 1
+
+        goal.header.frame_id = "laser_module_r"
+        goal.header.stamp = self.get_clock().now().to_msg()
+
+        # These are magic values that seemed to work during testing
+        goal.target_position = Point(
+            x=-point.x / 1000.0 + 0.028,
+            y=point.y / 1000.0 + 0.148,
+            z=-point.z / 1000.0,
+        )
+        goal.duration = 0.1  # Short duration just for aiming
+        goal.beam_diameter = 0.0
+        goal.power = 0.0  # No power, just aiming
+
+        # Send goal and wait for completion
+        self._control_laser_event.clear()
+        future = self._control_laser_action.send_goal_async(goal)
+        future.add_done_callback(self._control_goal_cb)
+        time.sleep(0.1)
+        # self._control_laser_event.wait()
+
+    def _control_goal_cb(self, future):
+        goal_handle = future.result()
+        get_result_future = goal_handle.get_result_async()
+        get_result_future.add_done_callback(self._control_result_cb)
+
+    def _control_result_cb(self, future):
+        self._control_laser_event.set()
 
 
 def main():

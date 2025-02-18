@@ -7,4 +7,6 @@ thop
 loguru==0.7.2
 cython_bbox==0.1.5
 onnxruntime-gpu --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/
-scipy # ByteTrack dependency that somehow does not get autoinstalled by its setup.py??
+
+# ByteTrack dependency that somehow does not get autoinstalled by its setup.py
+scipy 

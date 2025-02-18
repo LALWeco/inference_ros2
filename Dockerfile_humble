@@ -60,32 +60,32 @@ WORKDIR /home/docker
 RUN git clone https://github.com/LALWeco/ByteTrack.git && \
     cd ByteTrack && python3 setup.py develop
 
+USER docker
+RUN mkdir /home/docker/ros2_ws
 RUN echo "source /opt/ros/humble/setup.bash" >> /home/docker/.bashrc && \
     echo "source /home/docker/ros2_ws/install/setup.bash" >> /home/docker/.bashrc
 
-USER docker
+#USER docker
 # Install keypoint detection custom message definitions
-WORKDIR /home/docker/ros2_ws/src
+# WORKDIR /home/docker/ros2_ws/src
 # RUN git clone https://github.com/LALWeco/vision_msgs.git
 # RUN git clone https://github.com/LALWeco/lalweco_laser_module_ros.git
 
-WORKDIR /home/docker/ros2_ws/
 # Copy project files
-COPY --chown=docker inference_ros2 src/inference_ros2/
-COPY --chown=docker lalweco_perception_msgs src/lalweco_perception_msgs/
-COPY --chown=docker lalweco_laser_module_ros src/lalweco_laser_module_ros/
-
-# RUN rosdep install --from-paths src --ignore-src -r -y
+# WORKDIR /home/docker/ros2_ws/
+# COPY --chown=docker inference_ros2 src/inference_ros2/
+# COPY --chown=docker lalweco_perception_msgs src/lalweco_perception_msgs/
+# COPY --chown=docker lalweco_laser_module_ros src/lalweco_laser_module_ros/
 
 # Build ROS2 workspace
-USER root
+# USER root
 
-RUN apt-get update && \
-    rosdep update && \
-    rosdep install --from-paths src --ignore-src -r -y
+# RUN apt-get update && \
+#     rosdep update && \
+#     rosdep install --from-paths src --ignore-src -r -y
 
-USER docker
-RUN . /opt/ros/humble/setup.sh && colcon build
+#USER docker
+#RUN . /opt/ros/humble/setup.sh && colcon build
 
 # Set ownership of all workspace files
 # RUN chown -R docker:docker /home/docker
@@ -97,11 +97,12 @@ RUN . /opt/ros/humble/setup.sh && colcon build
 # Switch to non-root user
 
 # Set the working directory
-WORKDIR /home/docker/ros2_ws/src/inference_ros2
+# WORKDIR /home/docker/ros2_ws/src/inference_ros2
+#WORKDIR /home/docker/ros2_ws
 
 # Set the entrypoint
 # ENTRYPOINT ["/home/docker/ros2_ws/src/inference_ros2/entrypoint.sh"]
 
 # Command to run when starting the container
 # CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt", "--ros-args", "-p", "operation_mode:=image"]
-CMD ["ros2", "launch", "inference_ros2", "keypoint_detector.launch.py"]
+#CMD ["ros2", "launch", "inference_ros2", "keypoint_detector.launch.py"]
