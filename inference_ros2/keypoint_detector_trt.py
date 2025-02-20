@@ -15,10 +15,9 @@ from sensor_msgs.msg import CompressedImage, Image
 from vision_msgs.msg import (
     BoundingBox2D,
     Detection2D,
-    Keypoint2D,
-    Keypoint2DArray,
     ObjectHypothesisWithPose,
 )
+from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
 from yolox.tracker.byte_tracker import BYTETracker
 
 from utils import (
@@ -121,11 +120,9 @@ class CropKeypointDetector(Node):
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
         self.engine_path = os.path.join(
-            "/root/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-{}-23.10-800.engine".format(
-                mode
-            )
+            os.getenv('MODEL_PATH', '/home/docker/ros2_ws/src/inference_ros2/model'),
+            "yolov8-keypoint-det-cropweed-nuc-{}-23.10.engine".format(mode)
         )
-        # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
         trt.init_libnvinfer_plugins(None, "")
         assert os.path.exists(
