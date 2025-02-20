@@ -608,6 +608,13 @@ def clip_coords(coords, shape):
 
 
 def plot(boxes, keypoints, cv_image, mode="track"):
+    """
+    boxes : [xtl, ytl, xbr, ybr]
+    keypoints : [x, y, conf]
+    cv_image : cv image in HWC format on which cv functions can operate.
+    mode = 'det' or 'track'
+    return: cv image with boxes and keypoints plotted on it. The boxes can be either detection or tracking boxes with confidence or track id.
+    """
     cv_image = plot_boxes(boxes, cv_image, mode=mode)
     if keypoints is not None:
         cv_image = plot_kpts(keypoints, cv_image)
@@ -621,11 +628,11 @@ def plot_boxes(boxes, cv_image, mode="det"):
     boxes : [xtl, ytl, xbr, ybr]
     cv_image : cv image in HWC format on which cv functions can operate.
     mode = 'det' or 'track'
+    return: cv image with boxes and keypoints plotted on it. The boxes can be either detection or tracking boxes with confidence or track id.
     """
     if mode == "track":
         tracks = boxes.copy()
         boxes = np.array([track.tlbr for track in boxes])
-        # boxes = xywh2xyxy(boxes) This is not needed and only kept for debugging
         for box_idx in range(boxes.shape[0]):
             box = boxes[box_idx, :]
             # if tracklet.score < 1.0:
@@ -683,7 +690,6 @@ def plot_boxes(boxes, cv_image, mode="det"):
 
             # cv2.rectangle(cv_image, (50, 50), (400, 400), (0, 255, 0), 2)
     else:
-        # boxes = xywh2xyxy(boxes)
         color = (255, 0, 0)
         for obj in range(boxes.shape[0]):
             box = boxes[obj, :]

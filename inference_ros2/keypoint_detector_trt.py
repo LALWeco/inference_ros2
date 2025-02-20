@@ -244,9 +244,6 @@ class CropKeypointDetector(Node):
         preds[:, :4] = xywh2xyxy(preds[:, :4])
         keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
         preds = preds[keep_indices, :]
-        preds[:, :4] = xywh2xyxy(preds[:, :4])
-        keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
-        preds = preds[keep_indices, :]
         pred_kpts = (
             preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:]
         )  # TODO Fetch keypoint shape from model dynamically
@@ -307,7 +304,7 @@ class CropKeypointDetector(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = CropKeypointDetector(
-        topic="/sensors/zed_laser_module/zed_node/rgb/image_rect_color/compressed",
+        topic="/sensors/zed_r/zed_node/rgb/image_rect_color",
         mode="fp32",
     )
     rclpy.spin(node)
