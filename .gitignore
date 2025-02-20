@@ -13,6 +13,7 @@ msg/*Feedback.msg
 msg/*Goal.msg
 msg/*Result.msg
 msg/_*.py
+rosbag*
 build_isolated/
 devel_isolated/
 

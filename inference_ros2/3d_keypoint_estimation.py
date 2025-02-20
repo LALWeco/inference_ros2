@@ -22,6 +22,7 @@ class Point3DEstimator(Node):
             depth_image_topic = self.get_parameter("depth_image_topic").value
             # Synchronized subscribers
             self.keypoint_sub = Subscriber(self, Keypoint2DArray, "/inference/Keypoint2DDetArray")
+            self.get_logger().info(f"Subscribing to {depth_image_topic}")
             self.depth_sub = Subscriber(self, Image, depth_image_topic)
 
             # Synchronize messages within 0.1 seconds
@@ -51,9 +52,13 @@ class Point3DEstimator(Node):
             self.camera_height = self.get_parameter("camera_height").value
             self.camera_tilt = np.radians(self.get_parameter("camera_tilt").value)
 
+        self.declare_parameter(
+            "camera_info_topic", "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info"
+        )
+        camera_info_topic = self.get_parameter("camera_info_topic").value
         self.camera_info_sub = self.create_subscription(
             CameraInfo,
-            "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info",
+            camera_info_topic,
             self.camera_info_callback,
             10,
         )
@@ -77,28 +82,20 @@ class Point3DEstimator(Node):
         keypoint3d_array = Keypoint3DArray()
         keypoint3d_array.header = msg.header
 
-        # Find the keypoint closest to the center
-        center_x, center_y = self.camera_matrix[0, 2], self.camera_matrix[1, 2]
-        closest_keypoint = min(
-            msg.keypoints,
-            key=lambda kp: (kp.position.x - center_x) ** 2 + (kp.position.y - center_y) ** 2,
-        )
+        for point in msg.keypoints:
+            point3d = (
+                self.estimate_3d_point_depth(point)
+                if self.use_depth
+                else self.estimate_3d_point_geometry(point)
+            )
 
-        point3d = (
-            self.estimate_3d_point_depth(closest_keypoint)
-            if self.use_depth
-            else self.estimate_3d_point_geometry(closest_keypoint)
-        )
+            if point3d is not None:
+                keypoint3d = Keypoint3D()
+                keypoint3d.id = "1"  # Assign ID 1
+                keypoint3d.point = point3d
+                keypoint3d_array.keypoints.append(keypoint3d)
 
-        if point3d is not None:
-            # Send laser control action before publishing
-            self.send_laser_control(point3d)
-
-            keypoint3d = Keypoint3D()
-            keypoint3d.id = "1"  # Assign ID 1
-            keypoint3d.point = point3d
-            keypoint3d_array.keypoints.append(keypoint3d)
-
+        self.get_logger().info(f"Published {len(keypoint3d_array.keypoints)} 3D keypoints.")
         self.point3d_pub.publish(keypoint3d_array)
 
     def camera_info_callback(self, msg):
