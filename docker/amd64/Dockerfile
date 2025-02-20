@@ -1,6 +1,6 @@
 FROM nvcr.io/nvidia/tensorrt:23.10-py3
 
-WORKDIR /home/niqbal/ros2_ws/src/inference_ros2
+WORKDIR /home/docker/ros2_ws/src/inference_ros2
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -40,22 +40,22 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r /tmp/requirements.txt
 
 # Install keypoint detection custom message definitions
-WORKDIR /home/niqbal/ros2_ws/src
+WORKDIR /home/docker/ros2_ws/src
 RUN git clone https://github.com/LALWeco/vision_msgs.git
 
 # Copy project files
-COPY . /ros2_ws/src/inference_ros2
+COPY . /home/docker/ros2_ws/src/inference_ros2
 
 # Build ROS2 workspace
-WORKDIR /home/niqbal/ros2_ws/
+WORKDIR /home/docker/ros2_ws/
 RUN . /opt/ros/humble/setup.sh && colcon build
 
-RUN echo "source /home/niqbal/ros2_ws/install/setup.bash" >> ~/.bashrc
+RUN echo "source /home/docker/ros2_ws/install/setup.bash" >> ~/.bashrc
 
-WORKDIR /home/niqbal/ros2_ws/src/inference_ros2
+WORKDIR /home/docker/ros2_ws/src/inference_ros2
 
 # Add non-root user
-ARG USERNAME=niqbal
+ARG USERNAME=docker
 ARG USER_UID=1000
 ARG USER_GID=1000
 
@@ -65,11 +65,11 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Set up ROS workspace in the correct location
-WORKDIR /home/$USERNAME
+WORKDIR /home/docker
 RUN mkdir -p ros2_ws/src
 
 # Install ByteTrack in the correct location
-WORKDIR /home/$USERNAME
+WORKDIR /home/docker
 RUN git clone https://github.com/LALWeco/ByteTrack.git && \
     cd ByteTrack && python3 setup.py develop
 
@@ -84,20 +84,20 @@ RUN echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc && \
     echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc
 
 # Set ownership of all workspace files
-RUN chown -R $USERNAME:$USERNAME /home/$USERNAME
+RUN chown -R docker:docker /home/docker
 
 # Create .ros directory with correct permissions
-RUN mkdir -p /home/$USERNAME/.ros && \
-    chown -R $USERNAME:$USERNAME /home/$USERNAME/.ros
+RUN mkdir -p /home/docker/.ros && \
+    chown -R docker:docker /home/docker/.ros
 
 # Switch to non-root user
-USER $USERNAME
+USER docker
 
 # Set the working directory
-WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
+WORKDIR /home/docker/ros2_ws/src/inference_ros2
 
 # Set the entrypoint
-ENTRYPOINT ["/home/niqbal/ros2_ws/src/inference_ros2/entrypoint.sh"]
+ENTRYPOINT ["/home/docker/ros2_ws/src/inference_ros2/entrypoint.sh"]
 
 # Command to run when starting the container
 # CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt", "--ros-args", "-p", "operation_mode:=image"]

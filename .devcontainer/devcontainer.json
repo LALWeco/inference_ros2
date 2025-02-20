@@ -1,0 +1,31 @@
+{
+    "name": "Lalweco Inference ROS2 Development",
+    "build": {
+        "dockerfile": "../docker/amd64/Dockerfile_dev",
+        "context": ".."
+    },
+    "runArgs": [
+        "--gpus=all",
+        "--network=host",
+        "--runtime=nvidia",
+        "--ipc=host",
+        "-e", "TERM=xterm-256color",
+        // "-v /home/niqbal/ros2_ws:/root/ros2_ws",
+        "-v", "/dev/shm:/dev/shm"
+    ],
+    "mounts": [
+        "source=${localWorkspaceFolder},target=/home/docker/ros2_ws/src/inference_ros2,type=bind"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-vscode.cpptools",
+                "ms-iot.vscode-ros",
+                "twxs.cmake",
+                "ms-vscode.cmake-tools"
+            ]
+        }
+    },
+    "remoteUser": "docker"
+} 
