@@ -18,7 +18,8 @@ from vision_msgs.msg import (
     ObjectHypothesisWithPose,
 )
 from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
-from yolox.tracker.byte_tracker import BYTETracker
+# Remove yolox import and use local bytetracker package
+from bytetracker.byte_tracker import BYTETracker
 
 from utils import (
     non_max_suppression_v8,
@@ -65,12 +66,22 @@ class CropKeypointDetector(Node):
         self.ros_logger = self.get_logger()
         self.trt_logger = TrtLogger(self)
         self.class_ids = {0: "weeds", 1: "crop"}
-        self.tracker = BYTETracker(args=None, class_dict=self.class_ids)
+        # Initialize tracker with odometry support
+        self.tracker = BYTETracker(
+            track_thresh=0.3,
+            track_buffer=30,
+            match_thresh=0.9,
+            frame_rate=5,
+            odom_std_weight=1.0/40  # Adjust this based on your odometry noise characteristics
+        )
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden.
         self.trt_context = None
         self.init_model(mode=mode)
+        
+        # Add previous frame storage
+        self.prev_frame = None
 
     def get_logger(self):
         # Override get_logger to use ROS 2 logger
@@ -83,6 +94,8 @@ class CropKeypointDetector(Node):
             self.cv_image = CvBridge().imgmsg_to_cv2(msg)
         if self.cv_image.shape[2] != 3:
             self.cv_image = self.cv_image[:, :, :3]
+        # Crop the image to the region of interest
+        self.cv_image = self.cv_image[:800, 360:1160]
         self.header = msg.header
         # TODO: Remove after DEBUG
         # self.cv_image = cv2.imread('./sample.png')
@@ -113,6 +126,134 @@ class CropKeypointDetector(Node):
         except KeyboardInterrupt:
             self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
             self.cuda_ctx.pop()
+
+    def calculate_motion_from_homography(self, curr_frame, prev_frame):
+        """Calculate frame-to-frame motion using fast feature detection and matching"""
+        if prev_frame is None:
+            return 0.0, -40.0, (10.0, 10.0)
+            
+        # Convert images to grayscale and downscale for speed
+        gray1 = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        gray2 = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+        
+        # Max image size
+        max_size = 512
+        scale_factor = max(gray1.shape[0] / max_size, gray1.shape[1] / max_size)
+        # Optionally downscale images for even more speed
+        gray1 = cv2.resize(gray1, (int(gray1.shape[1] / scale_factor), int(gray1.shape[0] / scale_factor)))
+        gray2 = cv2.resize(gray2, (int(gray2.shape[1] / scale_factor), int(gray2.shape[0] / scale_factor)))
+        
+        # Use FAST feature detector instead of SIFT
+        fast = cv2.FastFeatureDetector_create(threshold=20)
+        kp1 = fast.detect(gray1, None)
+        kp2 = fast.detect(gray2, None)
+        
+        # Convert keypoints to numpy arrays for faster processing
+        if len(kp1) < 10 or len(kp2) < 10:
+            return 0.0, -40.0, (10.0, 10.0)
+        
+        # Use ORB for faster feature description
+        orb = cv2.ORB_create(nfeatures=500)
+        kp1, des1 = orb.compute(gray1, kp1)
+        kp2, des2 = orb.compute(gray2, kp2)
+        
+        if des1 is None or des2 is None:
+            return 0.0, -40.0, (10.0, 10.0)
+        
+        # Use Brute Force matcher with Hamming distance for binary descriptors
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        
+        try:
+            matches = bf.match(des1, des2)
+            # Sort matches by distance
+            matches = sorted(matches, key=lambda x: x.distance)[:50]  # Keep only top 50 matches
+        except Exception as e:
+            self.get_logger().warning(f"Matching failed: {e}")
+            return 0.0, -40.0, (10.0, 10.0)
+        
+        if len(matches) >= 10:
+            # Extract matched keypoints
+            src_pts = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+            dst_pts = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+            
+            # Find homography matrix with lower precision requirements
+            H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 8.0, maxIters=200)
+            
+            if H is not None:
+                # Extract translation from homography
+                tx = H[0,2]
+                ty = H[1,2]
+
+                tx = tx * scale_factor
+                ty = ty * scale_factor
+
+                # Simple uncertainty based on number of matches
+                uncertainty = (20.0 / len(matches), 20.0 / len(matches))
+                
+                return tx, ty, uncertainty
+        
+        return 0.0, -40.0, (10.0, 10.0)
+
+    # CUDA VERSION: Uncomment this method and comment the CPU version below
+    # def calculate_motion_from_homography(self, curr_frame, prev_frame):
+    #     """Calculate frame-to-frame motion using GPU accelerated feature detection and matching"""
+    #     if prev_frame is None:
+    #         return 0.0, 0.0, (10.0, 10.0)
+
+    #     # Upload frames to GPU
+    #     gpu_prev = cv2.cuda_GpuMat()
+    #     gpu_curr = cv2.cuda_GpuMat()
+    #     gpu_prev.upload(prev_frame)
+    #     gpu_curr.upload(curr_frame)
+        
+    #     # Convert to grayscale on GPU
+    #     gpu_gray1 = cv2.cuda.cvtColor(gpu_prev, cv2.COLOR_BGR2GRAY)
+    #     gpu_gray2 = cv2.cuda.cvtColor(gpu_curr, cv2.COLOR_BGR2GRAY)
+
+    #     # Optionally resize on GPU
+    #     max_size = 512
+    #     scale_factor = max(gpu_gray1.size()[1] / max_size, gpu_gray1.size()[0] / max_size)
+    #     new_size = (int(gpu_gray1.size()[1] / scale_factor), int(gpu_gray1.size()[0] / scale_factor))
+    #     gpu_gray1 = cv2.cuda.resize(gpu_gray1, new_size)
+    #     gpu_gray2 = cv2.cuda.resize(gpu_gray2, new_size)
+
+    #     # Detect features using GPU FAST
+    #     fast_gpu = cv2.cuda_FastFeatureDetector_create(threshold=20)
+    #     kp1_gpu = fast_gpu.detect(gpu_gray1, None)
+    #     kp2_gpu = fast_gpu.detect(gpu_gray2, None)
+
+    #     if len(kp1_gpu) < 10 or len(kp2_gpu) < 10:
+    #         return 0.0, 0.0, (10.0, 10.0)
+
+    #     # Compute descriptors using GPU ORB
+    #     orb_gpu = cv2.cuda_ORB_create(nfeatures=500)
+    #     kp1_gpu, des1_gpu = orb_gpu.compute(gpu_gray1, kp1_gpu)
+    #     kp2_gpu, des2_gpu = orb_gpu.compute(gpu_gray2, kp2_gpu)
+        
+    #     if des1_gpu is None or des2_gpu is None:
+    #         return 0.0, 0.0, (10.0, 10.0)
+        
+    #     # Use GPU BFMatcher with Hamming distance
+    #     bf_gpu = cv2.cuda.DescriptorMatcher_createBFMatcher(cv2.NORM_HAMMING)
+    #     matches_gpu = bf_gpu.match(des1_gpu, des2_gpu)
+    #     matches = sorted(matches_gpu, key=lambda x: x.distance)[:50]
+
+    #     if len(matches) >= 10:
+    #         # Convert keypoints back to CPU arrays for homography computation
+    #         src_pts = np.float32([kp1_gpu[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    #         dst_pts = np.float32([kp2_gpu[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+
+    #         # Compute homography on CPU (or use GPU-based method if available)
+    #         H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 8.0, maxIters=200)
+            
+    #         if H is not None:
+    #             tx = H[0, 2] * scale_factor
+    #             ty = H[1, 2] * scale_factor
+    #             uncertainty = (20.0 / len(matches), 20.0 / len(matches))
+    #             return tx, ty, uncertainty
+
+    #     return 0.0, 0.0, (10.0, 10.0)
+
 
     def init_model(self, mode="fp32"):
         """Initialize the model for inference"""
@@ -249,17 +390,90 @@ class CropKeypointDetector(Node):
         )  # TODO Fetch keypoint shape from model dynamically
         pred_kpts = scale_coords((self.p_h, self.p_w), pred_kpts, self.orig_shape)
         # The tracker expects them in xtl,ytl,xbr,ybr format.
-        # self.online_targets = self.tracker.update(preds, self.orig_shape, self.orig_shape)
+        
+        # Apply NMS to keypoints before tracking
+        if preds.shape[0] != 0:
+            keypoints = pred_kpts[:, 0, :2]  # N x 2 array of x,y coordinates
+            confidences = pred_kpts[:, 0, 2]  # N array of confidence scores
+            
+            # Apply NMS to keypoints
+            keep_indices = keypoint_nms(keypoints, confidences, distance_threshold=30)
+            
+            # Filter predictions and keypoints based on NMS results
+            preds = preds[keep_indices]
+            pred_kpts = pred_kpts[keep_indices]
+
+        # Calculate motion from homography
+        t_motion_start = time.time()
+        odom_vx, odom_vy, odom_uncertainty = self.calculate_motion_from_homography(
+            self.cv_image, self.prev_frame
+        )
+        motion_time = round((time.time() - t_motion_start) * 1000, 2)
+        self.get_logger().info(f"Motion calculation time: {motion_time} ms")
+        print(f"Motion: {odom_vx}, {odom_vy}, {odom_uncertainty}")
+        # Store current frame as previous
+        self.prev_frame = self.cv_image.copy()
+
+        # Update tracker with calculated odometry
+        self.online_targets = self.tracker.update(
+            preds,
+            None,
+            odom_vx=odom_vx,
+            odom_vy=odom_vy,
+            odom_uncertainty=odom_uncertainty
+        )
+        # Original plotting code for detections
         if preds.shape[0] != 0:
             self.orig = plot(preds, pred_kpts, self.orig, mode="det")
-        # if len(self.online_targets) != 0:
-        #     self.orig = plot(self.online_targets, None, self.orig, mode='track')
-        # cv2.imwrite('prediction.jpg', self.orig)
-        # cv2.imshow('predictions', self.orig)
-        # cv2.waitKey(1)
-        # plot(preds, pred_kpts, self.cv_image.astype(np.uint8))
-        # if self.operation_mode == 'detection':
+            
+        # Modified plotting code for tracks
+        if len(self.online_targets) != 0:
+
+            # Draw boxes, IDs, Kalman points, and track history
+            for track in self.tracker.tracked_stracks:
+                if track.is_activated:
+                    x1, y1, x2, y2 = track._detection.astype(int)
+                    kx, ky = track.keypoint.astype(int)
+                    
+                    # Draw bounding box
+                    cv2.rectangle(self.orig, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    # Draw track ID
+                    cv2.putText(self.orig, f'ID: {int(track.track_id)}', (x1, y1-10), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 255), 2)
+                    # Draw Kalman-filtered point
+                    cv2.circle(self.orig, (kx, ky), 4, (255, 0, 255), -1)  # Magenta dot
+                    
+                    # Draw track history
+                    if len(track.track_history) > 1:
+                        # Convert history points to integer array
+                        points = np.array(track.track_history, dtype=np.int32)
+                        # Draw lines connecting history points
+                        cv2.polylines(self.orig, [points], False, (255, 0, 255), 2)
+                        # Draw history points as small black dots
+                        for point in points:
+                            cv2.circle(self.orig, tuple(point), 3, (0, 255, 255), -1)
+
+            # Optionally visualize lost tracks with different color
+            for track in self.tracker.lost_stracks:
+                if len(track.track_history) > 1:
+                    points = np.array(track.track_history, dtype=np.int32)
+                    # Draw lost track history in a different color (e.g., gray)
+                    overlay = self.orig.copy()
+                    cv2.polylines(overlay, [points], False, (128, 128, 128), 1)
+                    cv2.addWeighted(overlay, 0.3, self.orig, 0.7, 0, self.orig)
+
         if preds.shape[0] != 0:
+            # Extract keypoints and their confidences
+            keypoints = pred_kpts[:, 0, :2]  # N x 2 array of x,y coordinates
+            confidences = pred_kpts[:, 0, 2]  # N array of confidence scores
+            
+            # Apply NMS to keypoints
+            keep_indices = keypoint_nms(keypoints, confidences, distance_threshold=30)
+            
+            # Filter predictions and keypoints based on NMS results
+            preds = preds[keep_indices]
+            pred_kpts = pred_kpts[keep_indices]
+            
             keypoint_msg = Keypoint2DArray()
             keypoint_msg.header.stamp = self.header.stamp
             keypoint_msg.header.frame_id = self.header.frame_id
@@ -299,6 +513,52 @@ class CropKeypointDetector(Node):
         img_msg.header.stamp = self.header.stamp
         img_msg.header.frame_id = self.header.frame_id
         self.publisher_image.publish(img_msg)
+
+
+def keypoint_nms(keypoints, confidences, distance_threshold=30):
+    """
+    Apply non-maximum suppression to keypoints based on their spatial distance and confidence.
+    
+    Args:
+        keypoints: numpy array of shape (N, 2) containing x,y coordinates
+        confidences: numpy array of shape (N,) containing confidence scores
+        distance_threshold: maximum distance between keypoints to be considered for suppression
+    
+    Returns:
+        keep_indices: indices of keypoints to keep after NMS
+    """
+    if len(keypoints) == 0:
+        return []
+        
+    keep_indices = []
+    
+    # Convert to numpy arrays if not already
+    keypoints = np.array(keypoints)
+    confidences = np.array(confidences)
+    
+    # Get indices sorted by confidence
+    order = confidences.argsort()[::-1]
+    
+    while order.size > 0:
+        # Keep the current highest confidence keypoint
+        i = order[0]
+        keep_indices.append(i)
+        
+        if order.size == 1:
+            break
+            
+        # Calculate distances between the current keypoint and all others
+        current_point = keypoints[i]
+        other_points = keypoints[order[1:]]
+        distances = np.sqrt(np.sum((other_points - current_point) ** 2, axis=1))
+        
+        # Find points that are far enough from the current point
+        far_enough = distances > distance_threshold
+        
+        # Update order by removing nearby points
+        order = order[1:][far_enough]
+    
+    return keep_indices
 
 
 def main(args=None):

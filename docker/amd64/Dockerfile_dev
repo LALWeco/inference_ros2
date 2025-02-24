@@ -39,11 +39,17 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --upgrade pip && \
     python3 -m pip install -r /tmp/requirements.txt
 
+# Add build arg for GitHub token
+ARG GITHUB_TOKEN
+
 # Install keypoint detection custom message definitions
 WORKDIR /home/docker/ros2_ws/src
-RUN git clone http://github.com/LALWeco/lalweco_perception_msgs.git && \
-    git clone http://github.com/ros-perception/vision_msgs.git && \
-    git clone http://github.com/LALWeco/lalweco_laser_module_ros.git
+
+# Clone repositories with error handling
+RUN git clone https://oauth2:${GITHUB_TOKEN}@github.com/LALWeco/lalweco_perception_msgs.git || echo "Failed to clone lalweco_perception_msgs" && \
+    git clone https://github.com/ros-perception/vision_msgs.git || echo "Failed to clone vision_msgs" && \
+    (git clone https://oauth2:${GITHUB_TOKEN}@github.com/LALWeco/lalweco_laser_module_ros.git || \
+    echo "Failed to clone lalweco_laser_module_ros - This is expected if you don't have access")
 
 # Create workspace directory structure
 RUN mkdir -p /home/docker/ros2_ws/src/inference_ros2
