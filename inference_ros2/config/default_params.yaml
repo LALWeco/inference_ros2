@@ -1,0 +1,87 @@
+keypoint_detector_node:
+  ros__parameters:
+    # Operating mode ("detection" or "image")
+    operation_mode: "detection"
+    
+    # Input image topic
+    image_topic: "/sensors/zed_r/zed_node/rgb/image_rect_color"
+    
+    # Model settings
+    model_precision: "fp32"
+    model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine"
+    
+    # Detection parameters
+    confidence_threshold: 0.5
+    iou_threshold: 0.4
+    max_detections: 200
+    
+    # Image processing
+    roi:
+      height: 800  # Crop height from top
+      x_min: 360   # Crop width from left
+      x_max: 1160  # Crop width from right
+
+    # Motion estimation parameters
+    motion_estimation:
+      # Image preprocessing
+      max_image_size: 512
+      
+      # Feature detection
+      max_features: 500
+      min_matches: 10
+      
+      # Homography estimation
+      ransac_threshold: 8.0
+      max_ransac_iterations: 200
+      
+      # Uncertainty estimation
+      base_uncertainty: 20.0  # pixels
+
+    # Tracking parameters
+    tracking:
+      # ByteTrack parameters
+      track_thresh: 0.3
+      track_buffer: 30
+      match_thresh: 0.9
+      frame_rate: 5
+      odom_std_weight: 0.025  # 1/40
+
+    # Visualization parameters
+    visualization:
+      # Colors (BGR format)
+      colors:
+        active_track: [0, 255, 0]    # Green
+        lost_track: [128, 128, 128]  # Gray
+        track_history: [255, 0, 255] # Magenta
+        
+      # Drawing parameters
+      point_radius: 4
+      line_thickness: 2
+      font_scale: 0.5
+
+point_estimator_node:
+  ros__parameters:
+    # Estimation method ("depth" or "geometric")
+    estimation_method: "depth"
+    
+    # Input topics
+    keypoint_topic: "/inference/Keypoint2DDetArray"
+    depth_topic: "/sensors/zed_laser_module/zed_node/depth/depth_registered"
+    camera_info_topic: "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info"
+    
+    # Depth estimation parameters
+    depth_sample_size: 5
+    
+    # Geometric estimation parameters
+    camera_height: 1.0  # meters
+    camera_tilt: 30.0   # degrees
+    
+    # Synchronization parameters
+    sync_queue_size: 10
+    sync_slop: 0.1  # seconds
+    
+    # Laser control parameters
+    target_duration: 0.1  # seconds
+    laser_offset:
+      x: 0.028  # meters
+      y: 0.148  # meters

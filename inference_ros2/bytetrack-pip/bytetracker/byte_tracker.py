@@ -186,7 +186,7 @@ class BYTETracker(object):
         removed_stracks = []
 
         # Get complete detection data including keypoints
-        det_data = dets.numpy()  # Convert to numpy if tensor
+        det_data = dets.numpy() if isinstance(dets, torch.Tensor) else dets  # Convert to numpy if tensor
         scores = det_data[:, 4]
         classes = det_data[:, 5]
 
@@ -332,22 +332,9 @@ class BYTETracker(object):
             self.tracked_stracks, self.lost_stracks
         )
 
-        # Format output: [x1,y1,x2,y2,track_id,class_id,score,kpt_x,kpt_y]
+        # Return activated tracks directly
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
-        outputs = []
-        for t in output_stracks:
-            output = []
-            tlbr = t.tlbr
-            tid = t.track_id
-            output.extend(tlbr)
-            output.append(tid)
-            output.append(t.cls)
-            output.append(t.score)
-            # Add Kalman-filtered keypoint coordinates
-            output.extend(t.mean[0:2])  # Adds [kpt_x, kpt_y]
-            outputs.append(output)
-
-        return np.array(outputs)
+        return output_stracks
 
 def joint_stracks(tlista, tlistb):
     exists = {}
