@@ -1,0 +1,50 @@
+inference:
+  detector:
+    engine_path:
+      type: string
+      default_value: "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine"
+      description: "The path to the engine model file."
+      validation:
+        not_empty<>: []
+    image_topic:
+      type: string
+      default_value: "/sensors/zed_laser_module/zed_node/rgb/image_rect_color/compressed"
+      description: "The ROS topic of the color image."
+      validation:
+        not_empty<>: []
+  depth_estimation:
+    depth_image_topic:
+      type: string
+      default_value: "/sensors/zed_laser_module/zed_node/depth/depth_registered"
+      description: "The ROS topic of the depth image."
+      validation:
+        not_empty<>: []
+    camera_info_topic:
+      type: string
+      default_value: "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info"
+      description: "The ROS topic of the camera info."
+      validation:
+        not_empty<>: []
+    use_depth:
+      type: bool
+      default_value: true
+      description: "Whether to use the depth image for 3d point estimation."
+    depth_sample_size:
+      type: int
+      default_value: 5
+      description: "The depth sampling size around the point in pixels."
+      validation:
+        bounds<>: [3, 25]
+    camera_height:
+      type: double
+      default_value: 1.0
+      description: "The camera height above the ground."
+      validation:
+        bounds<>: [0.1, 2.0]
+    camera_tilt:
+      type: double
+      default_value: 30.0
+      description: "The camera tilt."
+      validation:
+        bounds<>: [0.0, 360.0]
+

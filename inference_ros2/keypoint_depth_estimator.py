@@ -1,6 +1,5 @@
 import numpy as np
 import rclpy
-import tf2_ros
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
 from lalweco_perception_msgs.msg import Keypoint2DArray, Keypoint3D, Keypoint3DArray
@@ -8,22 +7,25 @@ from message_filters import ApproximateTimeSynchronizer, Subscriber
 from rclpy.node import Node
 from sensor_msgs.msg import CameraInfo, Image
 
+from inference_ros2.inference_parameters import inference
 
-class Point3DEstimator(Node):
-    def __init__(self, use_depth=True):
-        super().__init__("point_3d_estimator")
-        self.use_depth = use_depth
+
+class KeypointDepthEstimator(Node):
+    def __init__(self):
+        super().__init__("keypoint_depth_estimator")
+        param_listener = inference.ParamListener(self)
+        params = param_listener.get_params()
+        self.get_logger().info(params.detector.engine_path)
         self.bridge = CvBridge()
 
-        if use_depth:
-            self.declare_parameter(
-                "depth_image_topic", "/sensors/zed_laser_module/zed_node/depth/depth_registered"
-            )
-            depth_image_topic = self.get_parameter("depth_image_topic").value
-            # Synchronized subscribers
-            self.keypoint_sub = Subscriber(self, Keypoint2DArray, "/inference/Keypoint2DDetArray")
+        self.use_depth = params.depth_estimation.use_depth
+
+        if self.use_depth:
+            depth_image_topic = params.depth_estimation.depth_image_topic
             self.get_logger().info(f"Subscribing to {depth_image_topic}")
             self.depth_sub = Subscriber(self, Image, depth_image_topic)
+
+            self.keypoint_sub = Subscriber(self, Keypoint2DArray, "/inference/keypoints_2d")
 
             # Synchronize messages within 0.1 seconds
             self.ts = ApproximateTimeSynchronizer(
@@ -31,31 +33,20 @@ class Point3DEstimator(Node):
             )
             self.ts.registerCallback(self.sync_callback)
 
-            self.declare_parameter("depth_sample_size", 5)
-            self.depth_sample_size = self.get_parameter("depth_sample_size").value
+            self.depth_sample_size = params.depth_estimation.depth_sample_size
         else:
             # Regular subscriber for non-depth method
             self.keypoint_sub = self.create_subscription(
                 Keypoint2DArray,
-                "/inference/Keypoint2DDetArray",
+                "/inference/keypoints_2d",
                 self.keypoint_callback,
                 10,
             )
 
-            self.declare_parameters(
-                namespace="",
-                parameters=[
-                    ("camera_height", 1.0),
-                    ("camera_tilt", 30.0),
-                ],
-            )
-            self.camera_height = self.get_parameter("camera_height").value
-            self.camera_tilt = np.radians(self.get_parameter("camera_tilt").value)
+            self.camera_height = params.depth_estimation.camera_height
+            self.camera_tilt = np.radians(params.depth_estimation.camera_tilt)
 
-        self.declare_parameter(
-            "camera_info_topic", "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info"
-        )
-        camera_info_topic = self.get_parameter("camera_info_topic").value
+        camera_info_topic = params.depth_estimation.camera_info_topic
         self.camera_info_sub = self.create_subscription(
             CameraInfo,
             camera_info_topic,
@@ -64,12 +55,10 @@ class Point3DEstimator(Node):
         )
 
         self.camera_matrix = None
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
-        self.point3d_pub = self.create_publisher(Keypoint3DArray, "/cropweed/keypoints_3d", 10)
+        self.point3d_pub = self.create_publisher(Keypoint3DArray, "/inference/keypoints_3d", 10)
 
     def sync_callback(self, keypoint_msg, depth_msg):
-        self.latest_depth = self.bridge.imgmsg_to_cv2(depth_msg)
+        self.latest_depth_img = self.bridge.imgmsg_to_cv2(depth_msg)
         self.process_keypoints(keypoint_msg)
 
     def keypoint_callback(self, msg):
@@ -103,12 +92,12 @@ class Point3DEstimator(Node):
             self.camera_matrix = np.array(msg.k).reshape(3, 3)
 
     def get_depth_at_point(self, x, y):
-        if self.latest_depth is None:
+        if self.latest_depth_img is None:
             return None
 
         x, y = int(x), int(y)
         size = self.depth_sample_size
-        h, w = self.latest_depth.shape
+        h, w = self.latest_depth_img.shape
 
         # Define sampling box
         x1 = max(0, x - size // 2)
@@ -117,7 +106,7 @@ class Point3DEstimator(Node):
         y2 = min(h, y + size // 2 + 1)
 
         # Get median depth in sampling box
-        depth_region = self.latest_depth[y1:y2, x1:x2]
+        depth_region = self.latest_depth_img[y1:y2, x1:x2]
         valid_depths = depth_region[depth_region > 0]
 
         return np.median(valid_depths) if len(valid_depths) > 0 else None
@@ -130,13 +119,15 @@ class Point3DEstimator(Node):
             return None
 
         # Back-project to 3D
-        x_normalized = (x - self.camera_matrix[0, 2]) / self.camera_matrix[0, 0]
-        y_normalized = (y - self.camera_matrix[1, 2]) / self.camera_matrix[1, 1]
+        # x_normalized = (x - self.camera_matrix[0, 2]) / self.camera_matrix[0, 0]
+        # y_normalized = (y - self.camera_matrix[1, 2]) / self.camera_matrix[1, 1]
+        # point.x = x_normalized * depth
+        # point.y = y_normalized * depth
 
         point = Point()
+        point.x = x
+        point.y = y
         point.z = float(depth)
-        point.x = x_normalized * depth
-        point.y = y_normalized * depth
 
         return point
 
@@ -178,7 +169,7 @@ class Point3DEstimator(Node):
 
 def main():
     rclpy.init()
-    node = Point3DEstimator(use_depth=True)
+    node = KeypointDepthEstimator()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

@@ -1,14 +1,16 @@
 import os
+import warnings
 from glob import glob
 
+from generate_parameter_library_py.setup_helper import generate_parameter_module
 from setuptools import find_packages, setup
 
 package_name = "inference_ros2"
-import warnings
-
-import setuptools.dist
 
 warnings.filterwarnings("ignore", category=UserWarning, module="setuptools.dist")
+generate_parameter_module(
+    "inference_parameters", os.path.join(package_name, "inference_parameters.yaml")
+)
 
 setup(
     name=package_name,
@@ -21,6 +23,10 @@ setup(
             os.path.join("share", package_name, "launch"),
             glob(os.path.join("launch", "*launch.[pxy][yma]*")),
         ),
+        (
+            os.path.join("share", package_name, "config"),
+            glob(os.path.join("config", "*.yaml")),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -31,8 +37,8 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
-            "keypoint_detector_trt = inference_ros2.keypoint_detector_trt:main",
-            "target_3d_keypoint_estimation = inference_ros2.3d_keypoint_estimation:main",
+            "keypoint_detector = inference_ros2.keypoint_detector_trt:main",
+            "keypoint_depth_estimator = inference_ros2.keypoint_depth_estimator:main",
         ],
     },
 )

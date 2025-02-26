@@ -13,6 +13,7 @@ from sensor_msgs.msg import CompressedImage, Image
 from vision_msgs.msg import BoundingBox2D, Detection2D, ObjectHypothesisWithPose
 from yolox.tracker.byte_tracker import BYTETracker
 
+from inference_ros2.inference_parameters import inference_parameters
 from utils import (
     non_max_suppression_v8,
     plot,
@@ -30,6 +31,10 @@ kpt_shape = (1, 3)
 class CropKeypointDetector(Node):
     def __init__(self, mode="fp32"):
         super().__init__("CropKeypointDetector")
+        param_listener = inference_parameters.ParamListener(self)
+        params = param_listener.get_params()
+        self.get_logger().info(params.detector.engine_path)
+
         model_dir = "/home/docker/ros2_ws/src/inference_ros2/model"
         self.declare_parameter(
             "engine_path",
@@ -48,7 +53,7 @@ class CropKeypointDetector(Node):
         self.get_logger().info(f"Operating in {self.operation_mode} mode")
         # if self.operation_mode == 'detection':
         self.publisher_array = self.create_publisher(
-            Keypoint2DArray, "/inference/Keypoint2DDetArray", 10
+            Keypoint2DArray, "/inference/keypoints_2d", 10
         )
         # elif self.operation_mode == 'image':
         self.publisher_image = self.create_publisher(Image, "/inference/detection_image", 10)
@@ -72,10 +77,6 @@ class CropKeypointDetector(Node):
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden.
         self.trt_context = None
         self.init_model(mode=mode)
-
-    def get_logger(self):
-        # Override get_logger to use ROS 2 logger
-        return super().get_logger()
 
     def listener_callback(self, msg):
         if self.compressed:
@@ -122,11 +123,6 @@ class CropKeypointDetector(Node):
         cuda.init()
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
-        # self.engine_path = os.path.join(
-        #     "/root/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-{}-23.10-800.engine".format(
-        #         mode
-        #     )
-        # )
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
         trt.init_libnvinfer_plugins(None, "")

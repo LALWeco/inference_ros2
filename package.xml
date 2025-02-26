@@ -3,7 +3,8 @@
 <package format="3">
   <name>inference_ros2</name>
   <version>0.0.0</version>
-  <description>An inference module for ROS2 that subscribes to Image messages and publishes detections from a YOLOv7 Instance Segmentation model.</description>
+  <description>An inference module for ROS2 that subscribes to Image messages and publishes
+    detections from a YOLOv7 Instance Segmentation model.</description>
   <maintainer email="naeemiqbal996@gmail.com">niqbal</maintainer>
   <license>TODO: License declaration</license>
 
@@ -17,6 +18,7 @@
   <depend>sensor_msgs</depend>
   <depend>vision_msgs</depend>
   <depend>cv_bridge</depend>
+  <depend>generate_parameter_library</depend>
 
   <export>
     <build_type>ament_python</build_type>
