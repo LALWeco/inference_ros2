@@ -60,19 +60,14 @@ class GeometricEstimator(BasePointEstimator):
             print("Camera matrix not set")
             return None
             
-        print(f"Processing image point: ({keypoint_2d.x}, {keypoint_2d.y})")
-            
         # Get normalized ray in camera coordinates
         cam_ray = self._normalize_image_point(keypoint_2d.x, keypoint_2d.y)
         if cam_ray is None:
             print("Failed to normalize image point")
             return None
-            
-        print(f"Camera-space ray: {cam_ray}")
-            
+                        
         # Transform to world coordinates
         world_ray = self.cam_to_world @ cam_ray
-        print(f"World-space ray: {world_ray}")
             
         # In world coordinates:
         # - Camera is at origin looking down -Z
@@ -85,11 +80,9 @@ class GeometricEstimator(BasePointEstimator):
         # Calculate scaling factor to reach ground plane
         # At intersection: ray.z * scale = -camera_height
         scale = -self.camera_height / world_ray[2]
-        print(f"Scale factor: {scale}")
         
         # Calculate intersection point
         intersection = scale * world_ray
-        print(f"Intersection point: {intersection}")
         
         # Return world-space point (convert to ROS convention where Z is up)
         point_3d = Point()
