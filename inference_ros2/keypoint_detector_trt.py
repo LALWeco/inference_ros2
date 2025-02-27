@@ -18,7 +18,7 @@ from vision_msgs.msg import (
     ObjectHypothesisWithPose,
 )
 from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
-from yolox.tracker.byte_tracker import BYTETracker
+# from yolox.tracker.byte_tracker import BYTETracker
 
 from utils import (
     non_max_suppression_v8,
@@ -65,7 +65,7 @@ class CropKeypointDetector(Node):
         self.ros_logger = self.get_logger()
         self.trt_logger = TrtLogger(self)
         self.class_ids = {0: "weeds", 1: "crop"}
-        self.tracker = BYTETracker(args=None, class_dict=self.class_ids)
+        # self.tracker = BYTETracker(args=None, class_dict=self.class_ids)
         self.subscription  # prevent unused variable warning
         self.inference_mode = mode
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden.
