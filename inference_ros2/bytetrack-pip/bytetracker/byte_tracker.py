@@ -221,8 +221,8 @@ class BYTETracker(object):
         # for det in strack_pool:
         #     print(det.track_id, det.mean)
         # # Print mean of track mean states
-        print("Mean of track mean states:")
-        print(np.mean([det.mean for det in strack_pool], axis=0))
+        # print("Mean of track mean states:")
+        # print(np.mean([det.mean for det in strack_pool], axis=0))
 
         # Predict the current location with KF
         for track in strack_pool:
