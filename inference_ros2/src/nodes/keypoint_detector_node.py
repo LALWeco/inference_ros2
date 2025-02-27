@@ -19,9 +19,7 @@ from ..core.vision.utils import (
     remove_overlapping_boxes,
     non_max_suppression
 )
-from ..core.tracking.motion import MotionEstimator
-from ..utils.visualization import draw_detections, draw_tracks
-from bytetracker.byte_tracker import BYTETracker
+from ..utils.visualization import draw_detections
 
 class KeypointDetectorNode(Node):
     """ROS2 node for keypoint detection and tracking."""
@@ -66,15 +64,6 @@ class KeypointDetectorNode(Node):
             self.model_path,
             precision=self.get_parameter("model_precision").value
         )
-        self.tracker = BYTETracker(
-            track_thresh=0.3,
-            track_buffer=30,
-            match_thresh=0.9,
-            frame_rate=5,
-            odom_std_weight=0.025
-        )
-        self.motion_estimator = MotionEstimator()
-        self.prev_frame = None
         
         # Set up publishers
         self.det_pub = self.create_publisher(
@@ -149,19 +138,6 @@ class KeypointDetectorNode(Node):
                 # TODO ONLY FOR DEBUGGING WE REMOVE THE CROP
                 preds = preds[preds[:, 5] != 1]
 
-                # Update motion estimation
-                motion = self.motion_estimator.estimate_motion(cv_image, self.prev_frame)
-                self.prev_frame = cv_image.copy()
-                
-                # Update tracker
-                self.online_targets = self.tracker.update(
-                    preds,
-                    None,
-                    odom_vx=motion.translation_x,
-                    odom_vy=motion.translation_y,
-                    odom_uncertainty=(motion.uncertainty_x, motion.uncertainty_y)
-                )
-                
                 # Publish results
                 self.publish_detections(preds, msg.header)
                 
@@ -173,7 +149,6 @@ class KeypointDetectorNode(Node):
                         preds[:, 6:].reshape(len(preds), *self.kpt_shape),
                         self.classes
                     )
-                    viz_img = draw_tracks(viz_img, self.online_targets)
                     self.publish_visualization(viz_img, msg.header)
                     
         except Exception as e:

@@ -39,6 +39,7 @@ setup(
         'console_scripts': [
             'keypoint_detector_node = inference_ros2.src.nodes.keypoint_detector_node:main',
             'point_estimator_node = inference_ros2.src.nodes.point_estimator_node:main',
+            'motion_tracking_node = inference_ros2.src.nodes.motion_tracking_node:main',
         ],
     },
 )
