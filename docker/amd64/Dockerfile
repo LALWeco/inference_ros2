@@ -1,7 +1,5 @@
 FROM nvcr.io/nvidia/tensorrt:23.10-py3
 
-WORKDIR /home/docker/ros2_ws/src/inference_ros2
-
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=humble
@@ -9,6 +7,11 @@ ENV LANG=en_US.UTF-8
 
 # Set shell
 SHELL ["/bin/bash", "-c"]
+
+# Add non-root user
+ARG USERNAME=docker
+ARG USER_UID=1000
+ARG USER_GID=1000
 
 # Install system dependencies
 ARG PACKAGES="wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6 locales qtbase5-dev qtdeclarative5-dev"
@@ -40,24 +43,20 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -r /tmp/requirements.txt
 
 # Install keypoint detection custom message definitions
-WORKDIR /home/docker/ros2_ws/src
-RUN git clone https://github.com/LALWeco/vision_msgs.git
+WORKDIR /home/$USERNAME/ros2_ws/src
+RUN git clone http://github.com/LALWeco/lalweco_perception_msgs.git && \
+    git clone http://github.com/ros-perception/vision_msgs.git
 
 # Copy project files
-COPY . /home/docker/ros2_ws/src/inference_ros2
+COPY . /home/$USERNAME/ros2_ws/src/inference_ros2
 
 # Build ROS2 workspace
-WORKDIR /home/docker/ros2_ws/
+WORKDIR /home/$USERNAME/ros2_ws/
 RUN . /opt/ros/humble/setup.sh && colcon build
 
-RUN echo "source /home/docker/ros2_ws/install/setup.bash" >> ~/.bashrc
+RUN echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> ~/.bashrc
 
-WORKDIR /home/docker/ros2_ws/src/inference_ros2
-
-# Add non-root user
-ARG USERNAME=docker
-ARG USER_UID=1000
-ARG USER_GID=1000
+WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
 
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
@@ -65,11 +64,11 @@ RUN groupadd --gid $USER_GID $USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
 # Set up ROS workspace in the correct location
-WORKDIR /home/docker
+WORKDIR /home/$USERNAME
 RUN mkdir -p ros2_ws/src
 
 # Install ByteTrack in the correct location
-WORKDIR /home/docker
+WORKDIR /home/$USERNAME
 RUN git clone https://github.com/LALWeco/ByteTrack.git && \
     cd ByteTrack && python3 setup.py develop
 
@@ -84,21 +83,20 @@ RUN echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc && \
     echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc
 
 # Set ownership of all workspace files
-RUN chown -R docker:docker /home/docker
+RUN chown -R $USERNAME:$USERNAME /home/$USERNAME
 
 # Create .ros directory with correct permissions
-RUN mkdir -p /home/docker/.ros && \
-    chown -R docker:docker /home/docker/.ros
+RUN mkdir -p /home/$USERNAME/.ros && \
+    chown -R $USERNAME:$USERNAME /home/$USERNAME/.ros
 
 # Switch to non-root user
-USER docker
+USER $USERNAME
 
 # Set the working directory
-WORKDIR /home/docker/ros2_ws/src/inference_ros2
+WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
 
 # Set the entrypoint
-ENTRYPOINT ["/home/docker/ros2_ws/src/inference_ros2/entrypoint.sh"]
+ENTRYPOINT ["/home/$USERNAME/ros2_ws/src/inference_ros2/entrypoint.sh"]
 
 # Command to run when starting the container
-# CMD ["ros2", "run", "inference_ros2", "keypoint_detector_trt", "--ros-args", "-p", "operation_mode:=image"]
 CMD ["ros2", "launch", "inference_ros2", "keypoint_detector.launch.py"]

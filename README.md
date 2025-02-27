@@ -13,9 +13,8 @@ cd ~/ros2_ws/src
 git clone https://github.com/LALWeco/inference_ros2.git
 git clone https://github.com/ros-perception/vision_msgs.git
 git clone https://github.com/LALWeco/lalweco_perception_msgs.git
-git clone https://github.com/LALWeco/lalweco_laser_module_ros.git
 cd ~/ros2_ws
-colcon build --packages-select inference_ros2 vision_msgs lalweco_perception_msgs lalweco_laser_module_ros
+colcon build --packages-select inference_ros2 vision_msgs lalweco_perception_msgs
 source install/setup.bash
 ros2 launch inference_ros2 keypoint_detector.launch.py
 ```
