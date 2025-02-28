@@ -1,0 +1,18 @@
+keypoint_detector:
+  ros__parameters:
+    detector:
+      engine_path:
+        "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-ws-fp32-23.10.engine"
+      image_topic:
+        "/sensors/zed_l/zed_node/rgb/image_rect_color"
+keypoint_depth_estimator:
+  ros__parameters:
+    depth_estimation:
+      depth_image_topic:
+        "/sensors/zed_l/zed_node/depth/depth_registered"
+      camera_info_topic:
+        "/sensors/zed_l/zed_node/rgb/camera_info"
+      use_depth: true
+      depth_sample_size: 5
+      camera_height: 1.0
+      camera_tilt: 30.0

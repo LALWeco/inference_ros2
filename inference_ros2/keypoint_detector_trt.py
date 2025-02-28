@@ -1,26 +1,19 @@
 import os
 import time
 
-import cv2
 import imutils
 import numpy as np
 import pycuda.driver as cuda
 import rclpy
 import tensorrt as trt
 from cv_bridge import CvBridge
+from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage, Image
-
-# message definitions
-from vision_msgs.msg import (
-    BoundingBox2D,
-    Detection2D,
-    Keypoint2D,
-    Keypoint2DArray,
-    ObjectHypothesisWithPose,
-)
+from vision_msgs.msg import BoundingBox2D, Detection2D, ObjectHypothesisWithPose
 from yolox.tracker.byte_tracker import BYTETracker
 
+from inference_ros2.inference_parameters import inference
 from utils import (
     non_max_suppression_v8,
     plot,
@@ -36,33 +29,37 @@ kpt_shape = (1, 3)
 
 
 class CropKeypointDetector(Node):
-    def __init__(self, mode="fp32", topic="/realsenseD435/color/image_raw/compressed"):
+    def __init__(self, mode="fp32"):
         super().__init__("CropKeypointDetector")
+        param_listener = inference.ParamListener(self)
+        params = param_listener.get_params()
+
+        self.engine_path = params.detector.engine_path
+
+        image_topic = params.detector.image_topic
+
+        # TODO: Remove? Operation mode is not used anymore right?
         self.declare_parameter("operation_mode", "detection")
-        self.operation_mode = (
-            self.get_parameter("operation_mode").get_parameter_value().string_value
-        )
+        self.operation_mode = self.get_parameter("operation_mode").value
         self.get_logger().info(f"Operating in {self.operation_mode} mode")
+
         # if self.operation_mode == 'detection':
         self.publisher_array = self.create_publisher(
-            Keypoint2DArray, "/inference/Keypoint2DDetArray", 10
+            Keypoint2DArray, "/inference/keypoints_2d", 10
         )
         # elif self.operation_mode == 'image':
-        self.publisher_image = self.create_publisher(
-            Image, "/inference/detection_image", 10
-        )
-        if "compressed" in topic:
+        self.publisher_image = self.create_publisher(Image, "/inference/detection_image", 10)
+        if "compressed" in image_topic:
             self.compressed = True
             self.subscription = self.create_subscription(
-                CompressedImage, topic, self.listener_callback, 10
+                CompressedImage, image_topic, self.listener_callback, 10
             )
         else:
             self.compressed = False
             self.subscription = self.create_subscription(
-                Image, topic, self.listener_callback, 10
+                Image, image_topic, self.listener_callback, 10
             )
-        self.get_logger().info("Subscribing to {}".format(topic))
-        self.ros_logger = self.get_logger()
+        self.get_logger().info(f"Subscribing to {image_topic}")
         self.ros_logger = self.get_logger()
         self.trt_logger = TrtLogger(self)
         self.class_ids = {0: "weeds", 1: "crop"}
@@ -72,10 +69,6 @@ class CropKeypointDetector(Node):
         # NOTE! self.context is not allowed since the Node parent has a ROS2 related context which cannot be overridden.
         self.trt_context = None
         self.init_model(mode=mode)
-
-    def get_logger(self):
-        # Override get_logger to use ROS 2 logger
-        return super().get_logger()
 
     def listener_callback(self, msg):
         if self.compressed:
@@ -89,48 +82,43 @@ class CropKeypointDetector(Node):
         # self.cv_image = cv2.imread('./sample.png')
         # self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
         self.orig = self.cv_image.astype(np.uint8)
-        try:
-            t1 = time.time()
-            self.input_image = self.preprocess_image(self.cv_image)
-            t2 = time.time()
-            preprocess_time = round((t2 - t1) * 1000, 2)
-            # inference
-            outputs = self.infer_trt(self.input_image)
-            t3 = time.time()
-            inference_time = round((t3 - t2) * 1000, 2)
-            if outputs is not None:
-                self.postprocess_image(outputs)
-            t4 = time.time()
-            post_process_time = round((t4 - t3) * 1000, 2)
-            total = preprocess_time + inference_time + post_process_time
-            self.ros_logger.info(
-                "Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(
-                    preprocess_time,
-                    inference_time,
-                    post_process_time,
-                    round(1 / (total / 1000), 2),
-                )
+
+        t1 = time.time()
+        self.input_image = self.preprocess_image(self.cv_image)
+        t2 = time.time()
+        # inference
+        outputs = self.infer_trt(self.input_image)
+        t3 = time.time()
+        if outputs is not None:
+            self.postprocess_image(outputs)
+        t4 = time.time()
+
+        preprocess_time = round((t2 - t1) * 1000, 2)
+        inference_time = round((t3 - t2) * 1000, 2)
+        post_process_time = round((t4 - t3) * 1000, 2)
+        total_time = preprocess_time + inference_time + post_process_time
+
+        self.ros_logger.info(
+            "Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(
+                preprocess_time,
+                inference_time,
+                post_process_time,
+                round(1 / (total_time / 1000), 2),
             )
-        except KeyboardInterrupt:
-            self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
-            self.cuda_ctx.pop()
+        )
 
     def init_model(self, mode="fp32"):
         """Initialize the model for inference"""
         cuda.init()
         self.device = cuda.Device(0)
         self.cuda_ctx = self.device.make_context()
-        self.engine_path = os.path.join(
-            "/root/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-{}-23.10-800.engine".format(
-                mode
-            )
-        )
         # self.logger = trt.Logger(self.trt_logger)
         self.runtime = trt.Runtime(self.trt_logger)
         trt.init_libnvinfer_plugins(None, "")
-        assert os.path.exists(
-            self.engine_path
-        ), f"Engine file not found at path: \n {self.engine_path}"
+        assert os.path.exists(self.engine_path), (
+            f"Engine file not found at path: \n {self.engine_path}"
+        )
+        self.get_logger().info(f"Loading engine file from {self.engine_path}")
         with open(self.engine_path, "rb") as f:
             engine_data = f.read()
         self.engine = self.runtime.deserialize_cuda_engine(engine_data)
@@ -247,9 +235,6 @@ class CropKeypointDetector(Node):
         preds[:, :4] = xywh2xyxy(preds[:, :4])
         keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
         preds = preds[keep_indices, :]
-        preds[:, :4] = xywh2xyxy(preds[:, :4])
-        keep_indices = remove_overlapping_boxes(preds[:, :4], iou_threshold=0.8)
-        preds = preds[keep_indices, :]
         pred_kpts = (
             preds[:, 6:].view(len(preds), *kpt_shape) if len(preds) else preds[:, 6:]
         )  # TODO Fetch keypoint shape from model dynamically
@@ -306,16 +291,25 @@ class CropKeypointDetector(Node):
         img_msg.header.frame_id = self.header.frame_id
         self.publisher_image.publish(img_msg)
 
+    def shutdown(self):
+        """Clean up resources when node is shutting down"""
+        print("Cleaning up CUDA context and resources")
+        try:
+            self.cuda_ctx.pop()
+        except Exception as e:
+            print(f"Error during CUDA cleanup: {e}")
+
 
 def main(args=None):
     rclpy.init(args=args)
-    node = CropKeypointDetector(
-        topic="/sensors/zed_laser_module/zed_node/rgb/image_rect_color/compressed",
-        mode="fp32",
-    )
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+    node = CropKeypointDetector(mode="fp32")
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        print("Node interrupted by keyboard, shutting down...")
+    finally:
+        node.shutdown()
 
 
 if __name__ == "__main__":
