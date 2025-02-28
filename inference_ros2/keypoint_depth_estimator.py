@@ -15,7 +15,7 @@ class KeypointDepthEstimator(Node):
         super().__init__("keypoint_depth_estimator")
         param_listener = inference.ParamListener(self)
         params = param_listener.get_params()
-        self.get_logger().info(params.detector.engine_path)
+
         self.bridge = CvBridge()
 
         self.use_depth = params.depth_estimation.use_depth

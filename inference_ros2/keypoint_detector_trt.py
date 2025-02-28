@@ -13,7 +13,7 @@ from sensor_msgs.msg import CompressedImage, Image
 from vision_msgs.msg import BoundingBox2D, Detection2D, ObjectHypothesisWithPose
 from yolox.tracker.byte_tracker import BYTETracker
 
-from inference_ros2.inference_parameters import inference_parameters
+from inference_ros2.inference_parameters import inference
 from utils import (
     non_max_suppression_v8,
     plot,
@@ -31,26 +31,19 @@ kpt_shape = (1, 3)
 class CropKeypointDetector(Node):
     def __init__(self, mode="fp32"):
         super().__init__("CropKeypointDetector")
-        param_listener = inference_parameters.ParamListener(self)
+        param_listener = inference.ParamListener(self)
         params = param_listener.get_params()
         self.get_logger().info(params.detector.engine_path)
 
-        model_dir = "/home/docker/ros2_ws/src/inference_ros2/model"
-        self.declare_parameter(
-            "engine_path",
-            f"{model_dir}/yolov8-keypoint-det-cropweed-nuc-{mode}-23.10.engine",
-        )
-        self.engine_path = self.get_parameter("engine_path")._value
+        self.engine_path = params.detector.engine_path
 
-        self.declare_parameter(
-            "image_topic",
-            "/sensors/zed_laser_module/zed_node/rgb/image_rect_color/compressed",
-        )
-        image_topic = self.get_parameter("image_topic").value
+        image_topic = params.detector.image_topic
 
+        # Remove?
         self.declare_parameter("operation_mode", "detection")
         self.operation_mode = self.get_parameter("operation_mode").value
         self.get_logger().info(f"Operating in {self.operation_mode} mode")
+
         # if self.operation_mode == 'detection':
         self.publisher_array = self.create_publisher(
             Keypoint2DArray, "/inference/keypoints_2d", 10
