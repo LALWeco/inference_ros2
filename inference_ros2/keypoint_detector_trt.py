@@ -33,13 +33,12 @@ class CropKeypointDetector(Node):
         super().__init__("CropKeypointDetector")
         param_listener = inference.ParamListener(self)
         params = param_listener.get_params()
-        self.get_logger().info(params.detector.engine_path)
 
         self.engine_path = params.detector.engine_path
 
         image_topic = params.detector.image_topic
 
-        # Remove?
+        # TODO: Remove? Operation mode is not used anymore right?
         self.declare_parameter("operation_mode", "detection")
         self.operation_mode = self.get_parameter("operation_mode").value
         self.get_logger().info(f"Operating in {self.operation_mode} mode")
@@ -83,33 +82,30 @@ class CropKeypointDetector(Node):
         # self.cv_image = cv2.imread('./sample.png')
         # self.cv_image = cv2.cvtColor(self.cv_image, cv2.COLOR_BGR2RGB)
         self.orig = self.cv_image.astype(np.uint8)
-        try:
-            t1 = time.time()
-            self.input_image = self.preprocess_image(self.cv_image)
-            t2 = time.time()
-            # inference
-            outputs = self.infer_trt(self.input_image)
-            t3 = time.time()
-            if outputs is not None:
-                self.postprocess_image(outputs)
-            t4 = time.time()
 
-            preprocess_time = round((t2 - t1) * 1000, 2)
-            inference_time = round((t3 - t2) * 1000, 2)
-            post_process_time = round((t4 - t3) * 1000, 2)
-            total_time = preprocess_time + inference_time + post_process_time
+        t1 = time.time()
+        self.input_image = self.preprocess_image(self.cv_image)
+        t2 = time.time()
+        # inference
+        outputs = self.infer_trt(self.input_image)
+        t3 = time.time()
+        if outputs is not None:
+            self.postprocess_image(outputs)
+        t4 = time.time()
 
-            self.ros_logger.info(
-                "Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(
-                    preprocess_time,
-                    inference_time,
-                    post_process_time,
-                    round(1 / (total_time / 1000), 2),
-                )
+        preprocess_time = round((t2 - t1) * 1000, 2)
+        inference_time = round((t3 - t2) * 1000, 2)
+        post_process_time = round((t4 - t3) * 1000, 2)
+        total_time = preprocess_time + inference_time + post_process_time
+
+        self.ros_logger.info(
+            "Preprocessing: {} ms Inference: {} ms Postprocessing {} ms FPS: {}".format(
+                preprocess_time,
+                inference_time,
+                post_process_time,
+                round(1 / (total_time / 1000), 2),
             )
-        except KeyboardInterrupt:
-            self.get_logger().loginfo("Callback interrupted, cleaning up CUDA context")
-            self.cuda_ctx.pop()
+        )
 
     def init_model(self, mode="fp32"):
         """Initialize the model for inference"""
@@ -122,6 +118,7 @@ class CropKeypointDetector(Node):
         assert os.path.exists(self.engine_path), (
             f"Engine file not found at path: \n {self.engine_path}"
         )
+        self.get_logger().info(f"Loading engine file from {self.engine_path}")
         with open(self.engine_path, "rb") as f:
             engine_data = f.read()
         self.engine = self.runtime.deserialize_cuda_engine(engine_data)
@@ -294,13 +291,25 @@ class CropKeypointDetector(Node):
         img_msg.header.frame_id = self.header.frame_id
         self.publisher_image.publish(img_msg)
 
+    def shutdown(self):
+        """Clean up resources when node is shutting down"""
+        print("Cleaning up CUDA context and resources")
+        try:
+            self.cuda_ctx.pop()
+        except Exception as e:
+            print(f"Error during CUDA cleanup: {e}")
+
 
 def main(args=None):
     rclpy.init(args=args)
     node = CropKeypointDetector(mode="fp32")
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        print("Node interrupted by keyboard, shutting down...")
+    finally:
+        node.shutdown()
 
 
 if __name__ == "__main__":
