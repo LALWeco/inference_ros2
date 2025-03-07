@@ -36,16 +36,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -rf /var/lib/apt/lists/* && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
-# Install Python dependencies
-COPY requirements.txt /tmp/requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r /tmp/requirements.txt
+# # Add build arg for GitHub token
+# ARG GITHUB_TOKEN
 
 # Install keypoint detection custom message definitions
 WORKDIR /home/$USERNAME/ros2_ws/src
-RUN git clone http://github.com/LALWeco/lalweco_perception_msgs.git && \
-    git clone http://github.com/ros-perception/vision_msgs.git
+
+# Clone repositories with error handling
+RUN git clone https://github.com/LALWeco/lalweco_perception_msgs.git || echo "Failed to clone lalweco_perception_msgs" && \
+    git clone https://github.com/ros-perception/vision_msgs.git || echo "Failed to clone vision_msgs"
 
 # Create workspace directory structure
 RUN mkdir -p /home/$USERNAME/ros2_ws/src/inference_ros2
@@ -54,17 +53,17 @@ RUN mkdir -p /home/$USERNAME/ros2_ws/src/inference_ros2
 WORKDIR /home/$USERNAME/ros2_ws/
 RUN . /opt/ros/humble/setup.sh && colcon build
 
-RUN echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> ~/.bashrc
+RUN echo "source /home/${USERNAME}/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc
 
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
 
-# Install ByteTrack in the correct location
-WORKDIR /home/$USERNAME
-RUN git clone https://github.com/LALWeco/ByteTrack.git && \
-    cd ByteTrack && python3 setup.py develop
+# # Install ByteTrack in the correct location
+# WORKDIR /home/$USERNAME
+# RUN git clone https://github.com/LALWeco/ByteTrack.git && \
+#     cd ByteTrack && python3 setup.py develop
 
 # Set up color prompt and aliases properly
 RUN echo "PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" >> /home/$USERNAME/.bashrc && \
@@ -74,8 +73,8 @@ RUN echo "PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ 
 
 # Source ROS in the correct user's bashrc
 RUN echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc && \
-    echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc && \
-    echo "export MODEL_PATH=/home/docker/ros2_ws/src/inference_ros2/model" >> /home/$USERNAME/.bashrc
+    echo "source /home/${USERNAME}/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc && \
+    echo "export MODEL_PATH=/home/${USERNAME}/ros2_ws/src/inference_ros2/model" >> /home/$USERNAME/.bashrc
 
 # Set ownership of all workspace files
 RUN chown -R $USERNAME:$USERNAME /home/$USERNAME
@@ -86,6 +85,12 @@ RUN mkdir -p /home/$USERNAME/.ros && \
 
 # Switch to non-root user
 USER $USERNAME
+
+# Install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r /tmp/requirements.txt
 
 # Set the working directory
 WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
