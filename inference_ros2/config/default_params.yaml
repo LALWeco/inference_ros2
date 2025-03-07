@@ -62,10 +62,10 @@ keypoint_detector_node:
 point_estimator_node:
   ros__parameters:
     # Estimation method ("depth" or "geometric")
-    estimation_method: "depth"
+    estimation_method: "geometric"
     
     # Input topics
-    keypoint_topic: "/inference/Keypoint2DDetArray"
+    keypoint_topic: "/tracking/tracked_keypoints"
     depth_topic: "/sensors/zed_laser_module/zed_node/depth/depth_registered"
     camera_info_topic: "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info"
     
@@ -79,9 +79,3 @@ point_estimator_node:
     # Synchronization parameters
     sync_queue_size: 10
     sync_slop: 0.1  # seconds
-    
-    # Laser control parameters
-    target_duration: 0.1  # seconds
-    laser_offset:
-      x: 0.028  # meters
-      y: 0.148  # meters

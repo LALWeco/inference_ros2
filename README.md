@@ -33,7 +33,30 @@ Provides motion estimation and tracking using ByteTrack.
 - Features: Track history visualization, motion-compensated tracking
 
 ## Point Estimator Node
-Performs 2D to 3D estimation for detected keypoints.
+Performs 2D to 3D estimation for detected keypoints using either geometric or depth-based methods.
+
+### Geometric Estimation Method
+- Estimates 3D point positions using camera intrinsics and height
+- Assumes:
+  * Camera is looking straight down at the ground
+  * Keypoints lie on the ground plane
+  * Ground plane is at z = camera_height
+- Input: 2D keypoint detections
+- Output: 3D points in ROS coordinate frame (X right, Y forward, Z up)
+- Parameters:
+  * `camera_height`: Height of camera from ground (meters)
+  * `estimation_method`: Set to "geometric" to use this method
+
+### Depth-Based Method
+- Uses depth images to estimate 3D positions
+- Input: 2D keypoint detections and depth images
+- Output: 3D points based on actual depth measurements
+- Parameters:
+  * `depth_sample_size`: Size of depth sampling window
+  * `estimation_method`: Set to "depth" to use this method
+
+### Output Topics
+- `/cropweed/keypoints_3d`: 3D point markers in ROS coordinate frame
 
 # FAQs
 

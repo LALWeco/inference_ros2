@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-import threading
 import rclpy
+import numpy as np
 from rclpy.node import Node
-from rclpy.action import ActionClient
 from cv_bridge import CvBridge
 from message_filters import ApproximateTimeSynchronizer, Subscriber
 from geometry_msgs.msg import Point
 from sensor_msgs.msg import CameraInfo, Image
-from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray, Keypoint3D, Keypoint3DArray
-from lalweco_laser_module_msgs.action import ControlLaser
+from visualization_msgs.msg import Marker, MarkerArray
+from lalweco_perception_msgs.msg import Keypoint2DArray
 
 from ..core.estimation.depth_estimator import DepthEstimator
 from ..core.estimation.geometric_estimator import GeometricEstimator
@@ -24,18 +23,15 @@ class PointEstimatorNode(Node):
         self.declare_parameters(
             namespace="",
             parameters=[
-                ("estimation_method", "depth"),
-                ("keypoint_topic", "/inference/Keypoint2DDetArray"),
+                ("estimation_method", "geometric"),
+                ("keypoint_topic", "/tracking/tracked_keypoints"),
                 ("depth_topic", "/sensors/zed_laser_module/zed_node/depth/depth_registered"),
-                ("camera_info_topic", "/sensors/zed_laser_module/zed_node/rgb_gray/camera_info"),
+                ("camera_info_topic", "/sensors/zed_r/zed_node/rgb/camera_info"),
                 ("depth_sample_size", 5),
-                ("camera_height", 1.0),
-                ("camera_tilt", 30.0),
+                ("camera_height", 0.7),  # Set to 70cm
+                ("camera_tilt", 90.0),  # Default to looking straight down
                 ("sync_queue_size", 10),
-                ("sync_slop", 0.1),
-                ("target_duration", 0.1),
-                ("laser_offset.x", 0.028),
-                ("laser_offset.y", 0.148)
+                ("sync_slop", 0.1)
             ]
         )
         
@@ -97,19 +93,10 @@ class PointEstimatorNode(Node):
         
         # Set up publisher
         self.point3d_pub = self.create_publisher(
-            Keypoint3DArray,
+            MarkerArray,
             "/cropweed/keypoints_3d",
             10
         )
-        
-        # Set up laser control
-        self._control_laser_event = threading.Event()
-        self._control_laser_action = ActionClient(
-            self,
-            ControlLaser,
-            "/lalweco_laser_module_driver/control_laser"
-        )
-        self._target_id = 0
         
         self.get_logger().info(
             f"Initialized point estimator node using {self.method} method"
@@ -135,6 +122,10 @@ class PointEstimatorNode(Node):
         Args:
             msg: Keypoint detection message
         """
+        if self.camera_matrix is None:
+            self.get_logger().warn("Camera matrix not set yet. Skipping keypoint processing.")
+            return
+            
         self.process_keypoints(msg)
         
     def camera_info_callback(self, msg):
@@ -146,6 +137,7 @@ class PointEstimatorNode(Node):
         if self.camera_matrix is None:
             self.camera_matrix = np.array(msg.k).reshape(3, 3)
             self.estimator.set_camera_matrix(self.camera_matrix)
+            self.get_logger().info("Camera matrix set successfully")
             
     def process_keypoints(self, msg):
         """Process keypoint detections and estimate 3D points.
@@ -156,84 +148,52 @@ class PointEstimatorNode(Node):
         if not msg.keypoints:
             return
             
-        keypoint3d_array = Keypoint3DArray()
-        keypoint3d_array.header = msg.header
-        
-        # Find keypoint closest to image center
-        center_x = self.camera_matrix[0, 2]
-        center_y = self.camera_matrix[1, 2]
-        
-        closest_keypoint = min(
-            msg.keypoints,
-            key=lambda kp: (kp.position.x - center_x) ** 2 + 
-                         (kp.position.y - center_y) ** 2
-        )
-        
-        # Estimate 3D point
-        point3d = self.estimator.estimate_3d_point(closest_keypoint)
-        
-        if point3d is not None:
-            # Send laser control action
-            self.send_laser_control(point3d)
+        if not msg.detections:
+            self.get_logger().warn("Received keypoints but no detections")
+            return
             
-            # Create and publish 3D keypoint message
-            keypoint3d = Keypoint3D()
-            keypoint3d.id = "1"
-            keypoint3d.point = point3d
-            keypoint3d_array.keypoints.append(keypoint3d)
-            
-        self.point3d_pub.publish(keypoint3d_array)
+        marker_array = MarkerArray()
         
-    def send_laser_control(self, point: Point):
-        """Send laser control action.
+        for keypoint, detection in zip(msg.keypoints, msg.detections):
+            # Estimate 3D point
+            point3d = self.estimator.estimate_3d_point(keypoint.position)
+            if point3d is not None:
+                self.get_logger().debug(f"Estimated 3D point for ID {detection.id}: {point3d}")
+                
+                # Create marker
+                marker = Marker()
+                marker.header = msg.header
+                marker.ns = "tracked_keypoints"
+                marker.id = int(detection.id)
+                marker.type = Marker.POINTS
+                marker.action = Marker.ADD
+                
+                # Set frame_id if not set in header
+                if not marker.header.frame_id:
+                    marker.header.frame_id = "camera_link"  # Use camera frame
+                
+                # Add point to points array
+                marker.points.append(point3d)
+                
+                # Set scale and color
+                marker.scale.x = 0.02  # Point width
+                marker.scale.y = 0.02  # Point height
+                marker.color.r = 0.0
+                marker.color.g = 1.0  # Green
+                marker.color.b = 0.0
+                marker.color.a = 1.0
+                
+                # Set lifetime
+                marker.lifetime.sec = 1  # Show marker for 1 second
+                
+                marker_array.markers.append(marker)
+            else:
+                self.get_logger().warn(f"Failed to estimate 3D point for keypoint ID {detection.id}")
+                
+        if marker_array.markers:
+            self.point3d_pub.publish(marker_array)
+            self.get_logger().debug(f"Published {len(marker_array.markers)} 3D point markers")
         
-        Args:
-            point: Target 3D point
-        """
-        goal = ControlLaser.Goal()
-        goal.target_id = self._target_id
-        self._target_id += 1
-        
-        goal.header.frame_id = "laser_module_r"
-        goal.header.stamp = self.get_clock().now().to_msg()
-        
-        # Convert to meters and apply offset
-        x_offset = self.get_parameter("laser_offset.x").value
-        y_offset = self.get_parameter("laser_offset.y").value
-        
-        goal.target_position = Point(
-            x=-point.x / 1000.0 + x_offset,
-            y=point.y / 1000.0 + y_offset,
-            z=-point.z / 1000.0
-        )
-        
-        goal.duration = self.get_parameter("target_duration").value
-        goal.beam_diameter = 0.0
-        goal.power = 0.0  # Just aiming
-        
-        # Send goal
-        self._control_laser_event.clear()
-        future = self._control_laser_action.send_goal_async(goal)
-        future.add_done_callback(self._control_goal_callback)
-        
-    def _control_goal_callback(self, future):
-        """Handle laser control goal response.
-        
-        Args:
-            future: Goal response future
-        """
-        goal_handle = future.result()
-        get_result_future = goal_handle.get_result_async()
-        get_result_future.add_done_callback(self._control_result_callback)
-        
-    def _control_result_callback(self, future):
-        """Handle laser control action result.
-        
-        Args:
-            future: Result future
-        """
-        self._control_laser_event.set()
-
 def main():
     rclpy.init()
     node = PointEstimatorNode()
