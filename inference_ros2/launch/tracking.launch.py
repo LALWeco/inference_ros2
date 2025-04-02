@@ -36,9 +36,10 @@ def generate_launch_description():
     motion_tracking = Node(
         package='inference_ros2',
         executable='motion_tracking_node',
-        name='motion_tracking',
+        name='motion_tracking_node', # This has to match the namespace in the config/params.yaml
         parameters=[LaunchConfiguration('params_file')],
-        output='screen'
+        output='screen',
+        emulate_tty=True,
     )
 
     return LaunchDescription([

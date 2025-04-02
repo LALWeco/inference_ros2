@@ -18,7 +18,7 @@ class MotionTrackingNode(Node):
     
     def __init__(self):
         """Initialize the node."""
-        super().__init__("motion_tracking")
+        super().__init__("motion_tracking_node")    # This has to match the namespace in the config/params.yaml
         
         # Declare parameters
         self.declare_parameters(
