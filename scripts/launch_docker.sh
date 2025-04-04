@@ -1,7 +1,7 @@
 docker run -it --runtime=nvidia \
   --rm \
   --env TERM=xterm-256color \
-  --net=host \
+  --network=host \
   --ipc=host \
   -v /dev/shm:/dev/shm \
   -v /home/lero02/bags:/home/docker/bags:ro \
