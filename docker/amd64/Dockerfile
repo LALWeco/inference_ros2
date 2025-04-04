@@ -4,14 +4,14 @@ FROM nvcr.io/nvidia/tensorrt:23.10-py3
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=humble
 ENV LANG=en_US.UTF-8
-
-# Set shell
-SHELL ["/bin/bash", "-c"]
-
+ENV CONFIG="/home/docker/ros2_ws/src/inference_ros2/inference_ros2/config/default_params.yaml"
 # Add non-root user
 ARG USERNAME=docker
 ARG USER_UID=1000
 ARG USER_GID=1000
+
+# Set shell
+SHELL ["/bin/bash", "-c"]
 
 # Install system dependencies
 ARG PACKAGES="wget software-properties-common gnupg2 curl ffmpeg libsm6 libxext6 locales qtbase5-dev qtdeclarative5-dev"
@@ -36,41 +36,28 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -rf /var/lib/apt/lists/* && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
-# Install Python dependencies
-COPY requirements.txt /tmp/requirements.txt
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r /tmp/requirements.txt
-
 # Install keypoint detection custom message definitions
 WORKDIR /home/$USERNAME/ros2_ws/src
-RUN git clone http://github.com/LALWeco/lalweco_perception_msgs.git && \
-    git clone http://github.com/ros-perception/vision_msgs.git
 
-# Copy project files
-COPY . /home/$USERNAME/ros2_ws/src/inference_ros2
+# Clone repositories with error handling
+RUN git clone https://github.com/LALWeco/lalweco_perception_msgs.git || echo "Failed to clone lalweco_perception_msgs" && \
+    git clone https://github.com/ros-perception/vision_msgs.git || echo "Failed to clone vision_msgs" && \
+    git clone https://github.com/LALWeco/inference_ros2.git || echo "Failed to clone inference_ros2" && \
+    cd inference_ros2 && git checkout dev 
 
-# Build ROS2 workspace
+# Create workspace directory structure
+RUN mkdir -p /home/$USERNAME/ros2_ws/src/inference_ros2
+
+# Build ROS2 workspace (initial build without source code)
 WORKDIR /home/$USERNAME/ros2_ws/
 RUN . /opt/ros/humble/setup.sh && colcon build
 
-RUN echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> ~/.bashrc
-
-WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
+RUN echo "source /home/${USERNAME}/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc
 
 RUN groupadd --gid $USER_GID $USERNAME \
     && useradd --uid $USER_UID --gid $USER_GID -m $USERNAME \
     && echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME \
     && chmod 0440 /etc/sudoers.d/$USERNAME
-
-# Set up ROS workspace in the correct location
-WORKDIR /home/$USERNAME
-RUN mkdir -p ros2_ws/src
-
-# Install ByteTrack in the correct location
-WORKDIR /home/$USERNAME
-RUN git clone https://github.com/LALWeco/ByteTrack.git && \
-    cd ByteTrack && python3 setup.py develop
 
 # Set up color prompt and aliases properly
 RUN echo "PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '" >> /home/$USERNAME/.bashrc && \
@@ -80,7 +67,8 @@ RUN echo "PS1='\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ 
 
 # Source ROS in the correct user's bashrc
 RUN echo "source /opt/ros/humble/setup.bash" >> /home/$USERNAME/.bashrc && \
-    echo "source /home/$USERNAME/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc
+    echo "source /home/${USERNAME}/ros2_ws/install/setup.bash" >> /home/$USERNAME/.bashrc && \
+    echo "export MODEL_PATH=/home/${USERNAME}/ros2_ws/src/inference_ros2/model" >> /home/$USERNAME/.bashrc
 
 # Set ownership of all workspace files
 RUN chown -R $USERNAME:$USERNAME /home/$USERNAME
@@ -92,11 +80,15 @@ RUN mkdir -p /home/$USERNAME/.ros && \
 # Switch to non-root user
 USER $USERNAME
 
-# Set the working directory
 WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
+# Install Python dependencies
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install --upgrade pip && \
+    python3 -m pip install -r requirements.txt && \
+    python3 -m pip install -e ./inference_ros2/bytetrack-pip 
 
-# Set the entrypoint
-ENTRYPOINT ["/home/$USERNAME/ros2_ws/src/inference_ros2/entrypoint.sh"]
+# Set the entrypoint dynamically using the USERNAME value at build time
+# ARG ENTRYPOINT_PATH="/home/${USERNAME}/ros2_ws/src/inference_ros2/entrypoint.sh"
+# ENTRYPOINT ["/bin/bash", "-c", "${ENTRYPOINT_PATH}"]
 
-# Command to run when starting the container
-CMD ["ros2", "launch", "inference_ros2", "keypoint_detector.launch.py"]
+CMD ["/bin/bash", "-c", "ros2", "launch", "inference_ros2", "tracking.launch.py", "params:=${CONFIG}"]

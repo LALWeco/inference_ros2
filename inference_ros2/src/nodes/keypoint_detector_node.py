@@ -26,7 +26,7 @@ class KeypointDetectorNode(Node):
     
     def __init__(self):
         """Initialize the node."""
-        super().__init__("keypoint_detector")
+        super().__init__("keypoint_detector_node") # This has to match the namespace in the config/params.yaml
         
         # Declare parameters
         self.declare_parameters(
@@ -35,7 +35,7 @@ class KeypointDetectorNode(Node):
                 ("operation_mode", "detection"),
                 ("image_topic", "/sensors/zed_r/zed_node/rgb/image_rect_color"),
                 ("model_precision", "fp32"),
-                ("model_path", ""),
+                ("model_path", "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine"),
                 ("confidence_threshold", 0.5),
                 ("iou_threshold", 0.4),
                 ("max_detections", 200),
