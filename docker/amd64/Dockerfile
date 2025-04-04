@@ -4,11 +4,11 @@ FROM nvcr.io/nvidia/tensorrt:23.10-py3
 ENV DEBIAN_FRONTEND=noninteractive
 ENV ROS_DISTRO=humble
 ENV LANG=en_US.UTF-8
-ENV CONFIG="/home/docker/ros2_ws/src/inference_ros2/inference_ros2/config/default_params.yaml"
 # Add non-root user
 ARG USERNAME=docker
 ARG USER_UID=1000
 ARG USER_GID=1000
+ENV CONFIG="/home/$USERNAME/ros2_ws/src/inference_ros2/inference_ros2/config/default_params.yaml"
 
 # Set shell
 SHELL ["/bin/bash", "-c"]
@@ -81,14 +81,15 @@ RUN mkdir -p /home/$USERNAME/.ros && \
 USER $USERNAME
 
 WORKDIR /home/$USERNAME/ros2_ws/src/inference_ros2
+
 # Install Python dependencies
 RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m pip install --upgrade pip && \
-    python3 -m pip install -r requirements.txt && \
+    python3 -m pip install --upgrade pip
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m pip install -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e ./inference_ros2/bytetrack-pip 
 
-# Set the entrypoint dynamically using the USERNAME value at build time
-# ARG ENTRYPOINT_PATH="/home/${USERNAME}/ros2_ws/src/inference_ros2/entrypoint.sh"
-# ENTRYPOINT ["/bin/bash", "-c", "${ENTRYPOINT_PATH}"]
+RUN cp /home/docker/entrypoint.sh /
 
-CMD ["/bin/bash", "-c", "ros2", "launch", "inference_ros2", "tracking.launch.py", "params:=${CONFIG}"]
+ENTRYPOINT ["/bin/bash", "-c", "/home/docker/entrypoint.sh"]
