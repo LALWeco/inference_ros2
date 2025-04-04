@@ -88,7 +88,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install -e ./inference_ros2/bytetrack-pip 
 
 # Set the entrypoint dynamically using the USERNAME value at build time
-ARG ENTRYPOINT_PATH="/home/${USERNAME}/ros2_ws/src/inference_ros2/entrypoint.sh"
-ENTRYPOINT ["/bin/bash", "-c", "${ENTRYPOINT_PATH}"]
+# ARG ENTRYPOINT_PATH="/home/${USERNAME}/ros2_ws/src/inference_ros2/entrypoint.sh"
+# ENTRYPOINT ["/bin/bash", "-c", "${ENTRYPOINT_PATH}"]
 
-CMD ["/bin/bash", "-c", "ros2", "launch", "inference_ros2", "tracking.launch.py", "--params-file", "${CONFIG}"]
+CMD ["/bin/bash", "-c", "ros2", "launch", "inference_ros2", "tracking.launch.py", "params:=${CONFIG}"]
