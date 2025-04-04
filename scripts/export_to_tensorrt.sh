@@ -9,7 +9,7 @@ CONFIG_FILE="$ROOT_DIR/inference_ros2/config/default_params.yaml"
 # Default values
 MODEL_NAME="yolov8-keypoint-det"
 DEFAULT_ONNX_PATH="$MODEL_DIR/800.onnx"
-PLATFORMS=("nuc" "custom" "rtx-3070")
+PLATFORMS=("rtx-2060" "rtx-3070" "custom") # nuc->rtx-2060, workstation->rtx-3070
 PRECISIONS=("fp32" "fp16" "int8")
 DEFAULT_PRECISION="fp32"
 
