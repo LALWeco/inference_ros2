@@ -33,13 +33,6 @@ def generate_launch_description():
         name='keypoint_detector_node',# This has to match the namespace in the config/params.yaml
         parameters=[
             LaunchConfiguration('params_file'),
-            # {
-            #     'model_path': PathJoinSubstitution([
-            #         FindPackageShare('inference_ros2'),
-            #         'model',
-            #         'yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine'  # Current engine file name
-            #     ]),
-            # }
         ],
         output='screen',
         emulate_tty=True,
@@ -49,7 +42,7 @@ def generate_launch_description():
     point_estimator = Node(
         package='inference_ros2',
         executable='point_estimator_node',
-        name='point_estimator',
+        name='point_estimator_node', # Match the namespace in params.yaml
         parameters=[LaunchConfiguration('params_file')],
         output='screen',
         emulate_tty=True,

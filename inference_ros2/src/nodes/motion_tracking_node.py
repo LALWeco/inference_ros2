@@ -24,11 +24,16 @@ class MotionTrackingNode(Node):
         self.declare_parameters(
             namespace="",
             parameters=[
-                ("image_topic", "/sensors/zed_r/zed_node/rgb/image_rect_color"),
-                ("detection_topic", "/inference/Keypoint2DDetArray"),
-                ("roi.height", 800),
-                ("roi.x_min", 360),
-                ("roi.x_max", 1160)
+                ("image_topic", rclpy.Parameter.Type.STRING),
+                ("detection_topic", rclpy.Parameter.Type.STRING),
+                ("roi.height", rclpy.Parameter.Type.INTEGER),
+                ("roi.x_min", rclpy.Parameter.Type.INTEGER),
+                ("roi.x_max", rclpy.Parameter.Type.INTEGER),
+                ("tracking.track_thresh", rclpy.Parameter.Type.DOUBLE),
+                ("tracking.track_buffer", rclpy.Parameter.Type.INTEGER),
+                ("tracking.match_thresh", rclpy.Parameter.Type.DOUBLE),
+                ("tracking.frame_rate", rclpy.Parameter.Type.INTEGER),
+                ("tracking.odom_std_weight", rclpy.Parameter.Type.DOUBLE)
             ]
         )
         
@@ -44,11 +49,11 @@ class MotionTrackingNode(Node):
         # Initialize components
         self.bridge = CvBridge()
         self.tracker = BYTETracker(
-            track_thresh=0.3,
-            track_buffer=30,
-            match_thresh=0.9,
-            frame_rate=5,
-            odom_std_weight=0.025
+            track_thresh=self.get_parameter("tracking.track_thresh").value,
+            track_buffer=self.get_parameter("tracking.track_buffer").value,
+            match_thresh=self.get_parameter("tracking.match_thresh").value,
+            frame_rate=self.get_parameter("tracking.frame_rate").value,
+            odom_std_weight=self.get_parameter("tracking.odom_std_weight").value
         )
         self.motion_estimator = MotionEstimator()
         self.prev_frame = None
@@ -149,34 +154,46 @@ class MotionTrackingNode(Node):
         """Convert detection message to numpy array format for tracker.
         
         Args:
-            det_msg: Detection message
+            det_msg: Detection message (coordinates relative to full image)
             
         Returns:
-            Detection array
+            Detection array (coordinates relative to cropped image)
         """
         dets = []
         for det, kpt in zip(det_msg.detections, det_msg.keypoints):
             bbox = det.bbox
-            x1 = bbox.center.position.x - bbox.size_x/2
-            y1 = bbox.center.position.y - bbox.size_y/2
-            x2 = x1 + bbox.size_x
-            y2 = y1 + bbox.size_y
+            # Convert received full-image coordinates to cropped-image coordinates for the tracker
+            x1_full = bbox.center.position.x - bbox.size_x/2
+            y1_full = bbox.center.position.y - bbox.size_y/2
+            x2_full = x1_full + bbox.size_x
+            y2_full = y1_full + bbox.size_y
+            
+            x1_cropped = x1_full - self.roi["x_min"]
+            y1_cropped = y1_full # Assuming ROI starts at y=0
+            x2_cropped = x2_full - self.roi["x_min"]
+            y2_cropped = y2_full # Assuming ROI starts at y=0
+            
             conf = det.results[0].hypothesis.score
             cls = det.results[0].hypothesis
             
+            # Keypoint coordinates relative to cropped image
+            kpt_x_cropped = kpt.position.x - self.roi["x_min"]
+            kpt_y_cropped = kpt.position.y # Assuming ROI starts at y=0
+            
             # Format: [x1, y1, x2, y2, conf, cls, kpt_x, kpt_y, kpt_conf]
-            det_array = [x1, y1, x2, y2, conf, 
+            # Use cropped coordinates for the tracker
+            det_array = [x1_cropped, y1_cropped, x2_cropped, y2_cropped, conf, 
                         0 if cls.class_id == "weed" else 1,  # 0=weed, 1=crop
-                        kpt.position.x, kpt.position.y, kpt.confidence]
+                        kpt_x_cropped, kpt_y_cropped, kpt.confidence]
             dets.append(det_array)
             
         return np.array(dets) if dets else np.zeros((0, 9))
         
     def publish_tracks(self, tracks, header):
-        """Publish tracked keypoints.
+        """Publish tracked keypoints (relative to full image).
         
         Args:
-            tracks: List of track objects
+            tracks: List of track objects (coordinates relative to cropped image)
             header: ROS message header
         """
         msg = Keypoint2DArray()
@@ -184,29 +201,36 @@ class MotionTrackingNode(Node):
         
         for track in tracks:
             det = Detection2D()
-            tlwh = track.tlwh
+            # tlwh = track.tlwh # tlwh is relative to cropped image
+            tlbr = track._detection
+            # Convert cropped tlwh to full-image center and size
+            x1_cropped, y1_cropped, x2_cropped, y2_cropped = tlbr
+            w = x2_cropped - x1_cropped
+            h = y2_cropped - y1_cropped
             
-            # Convert to xyxy format
-            x1, y1, w, h = tlwh
-            x2, y2 = x1 + w, y1 + h
+            # Center in cropped image
+            center_x_cropped = x1_cropped + w / 2.0
+            center_y_cropped = y1_cropped + h / 2.0
             
-            # Get keypoint from track
-            # BYTETracker stores keypoints directly in the track object
-            kpt = track.keypoint
+            # Convert to full image coordinates
+            center_x_full = center_x_cropped + self.roi["x_min"]
+            center_y_full = center_y_cropped # Assuming ROI starts at y=0
             
-            # Create keypoint message
+            # Get keypoint from track (relative to cropped image)
+            kpt_cropped = track.keypoint 
+            
+            # Create keypoint message (add offset back for full image coordinates)
             keypoint = Keypoint2D()
-            keypoint.position.x = float(kpt[0])
-            keypoint.position.y = float(kpt[1])
+            keypoint.position.x = float(kpt_cropped[0]) + self.roi["x_min"] # Add offset back
+            keypoint.position.y = float(kpt_cropped[1]) # No y-offset needed if roi starts at y=0
             keypoint.confidence = 1.0  # Tracked points are considered confident
             
-            # Set detection info
-            det.bbox.center.position.x = (x1 + x2) / 2
-            det.bbox.center.position.y = (y1 + y2) / 2
+            # Set detection info (using full image coordinates)
+            det.bbox.center.position.x = center_x_full
+            det.bbox.center.position.y = center_y_full
             det.bbox.size_x = w
             det.bbox.size_y = h
             det.id = str(track.track_id)
-            
             msg.keypoints.append(keypoint)
             msg.detections.append(det)
             

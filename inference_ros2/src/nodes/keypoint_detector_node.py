@@ -32,16 +32,16 @@ class KeypointDetectorNode(Node):
         self.declare_parameters(
             namespace="",
             parameters=[
-                ("operation_mode", "detection"),
-                ("image_topic", "/sensors/zed_r/zed_node/rgb/image_rect_color"),
-                ("model_precision", "fp32"),
-                ("model_path", "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine"),
-                ("confidence_threshold", 0.5),
-                ("iou_threshold", 0.4),
-                ("max_detections", 200),
-                ("roi.height", 800),
-                ("roi.x_min", 360),
-                ("roi.x_max", 1160)
+                ("operation_mode", rclpy.Parameter.Type.STRING),
+                ("image_topic", rclpy.Parameter.Type.STRING),
+                ("model_precision", rclpy.Parameter.Type.STRING),
+                ("model_path", rclpy.Parameter.Type.STRING),
+                ("confidence_threshold", rclpy.Parameter.Type.DOUBLE),
+                ("iou_threshold", rclpy.Parameter.Type.DOUBLE),
+                ("max_detections", rclpy.Parameter.Type.INTEGER),
+                ("roi.height", rclpy.Parameter.Type.INTEGER),
+                ("roi.x_min", rclpy.Parameter.Type.INTEGER),
+                ("roi.x_max", rclpy.Parameter.Type.INTEGER)
             ]
         )
         
@@ -193,11 +193,18 @@ class KeypointDetectorNode(Node):
             
             # Scale keypoints
             kpts = preds[:, 6:].reshape(len(preds), *self.kpt_shape)
-            kpts = scale_coords(pad_shape, kpts, orig_shape)
+            kpts = scale_coords(pad_shape, kpts, orig_shape) # orig_shape is the cropped shape here
+            
+            # --- Add ROI offset ---
+            kpts[:, :, 0] += self.roi["x_min"] # Offset X coordinate
+            # ----------------------
+            
             preds[:, 6:] = kpts.reshape(len(preds), -1)
             
             # Apply keypoint NMS
-            keypoints = kpts[:, 0, :2]
+            # Use the original keypoint coordinates (before offset) for NMS if needed,
+            # or apply NMS before offsetting. Here we use offsetted coords.
+            keypoints = kpts[:, 0, :2] 
             confidences = kpts[:, 0, 2]
             keep = keypoint_nms(keypoints, confidences)
             preds = preds[keep]
@@ -219,9 +226,9 @@ class KeypointDetectorNode(Node):
                 det = Detection2D()
                 bbox = BoundingBox2D()
                 
-                # Set bounding box
-                bbox.center.position.x = (pred[0].item() + pred[2].item()) / 2  # Center x
-                bbox.center.position.y = (pred[1].item() + pred[3].item()) / 2  # Center y
+                # Set bounding box (apply offset)
+                bbox.center.position.x = (pred[0].item() + pred[2].item()) / 2 + self.roi["x_min"] # Center x offset
+                bbox.center.position.y = (pred[1].item() + pred[3].item()) / 2  # Center y (no offset if y=0)
                 bbox.size_x = pred[2].item() - pred[0].item()  # Width
                 bbox.size_y = pred[3].item() - pred[1].item()  # Height
                 
@@ -234,11 +241,11 @@ class KeypointDetectorNode(Node):
                 det.results.append(obj)
                 det.id = str(i)
                 
-                # Set keypoint
+                # Set keypoint (already offset in process_detections)
                 kpt = pred[6:9]  # First keypoint
                 keypoint = Keypoint2D()
-                keypoint.position.x = float(kpt[0])
-                keypoint.position.y = float(kpt[1])
+                keypoint.position.x = float(kpt[0]) # Already offset
+                keypoint.position.y = float(kpt[1]) # No y-offset needed if roi starts at y=0
                 keypoint.confidence = float(kpt[2])
                 
                 msg.keypoints.append(keypoint)

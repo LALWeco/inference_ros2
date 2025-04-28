@@ -4,7 +4,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
-
+from launch import LaunchService
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -47,3 +47,14 @@ def generate_launch_description():
         inference_launch,
         motion_tracking,
     ])
+
+
+def main():
+    ls = LaunchService()
+    ld = generate_launch_description()
+    ls.include_launch_description(ld)
+    return ls.run()
+
+
+if __name__ == '__main__':
+    main()

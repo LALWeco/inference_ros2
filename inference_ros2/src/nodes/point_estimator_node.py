@@ -23,15 +23,15 @@ class PointEstimatorNode(Node):
         self.declare_parameters(
             namespace="",
             parameters=[
-                ("estimation_method", "geometric"),
-                ("keypoint_topic", "/tracking/tracked_keypoints"),
-                ("depth_topic", "/sensors/zed_laser_module/zed_node/depth/depth_registered"),
-                ("camera_info_topic", "/sensors/zed_r/zed_node/rgb/camera_info"),
-                ("depth_sample_size", 5),
-                ("camera_height", 0.7),  # Set to 70cm
-                ("camera_tilt", 90.0),  # Default to looking straight down
-                ("sync_queue_size", 10),
-                ("sync_slop", 0.1)
+                ("estimation_method", rclpy.Parameter.Type.STRING),
+                ("keypoint_topic", rclpy.Parameter.Type.STRING),
+                ("depth_topic", rclpy.Parameter.Type.STRING),
+                ("camera_info_topic", rclpy.Parameter.Type.STRING),
+                ("depth_sample_size", rclpy.Parameter.Type.INTEGER),
+                ("camera_height", rclpy.Parameter.Type.DOUBLE),
+                ("camera_tilt", rclpy.Parameter.Type.DOUBLE),
+                ("sync_queue_size", rclpy.Parameter.Type.INTEGER),
+                ("sync_slop", rclpy.Parameter.Type.DOUBLE)
             ]
         )
         
