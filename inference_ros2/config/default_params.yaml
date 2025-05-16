@@ -4,11 +4,11 @@ keypoint_detector_node:
     operation_mode: "detection"
     
     # Input image topic
-    image_topic: "/sensors/zed_l/zed_node/rgb/image_rect_color"
+    image_topic: "/oak/rgb/image_raw/compressed"
     
     # Model settings
     model_precision: "fp32"
-    model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-cropweed-nuc-fp32-23.10.engine"
+    model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-rtx-2060-fp32-8.6.1-800.engine"
     
     # Detection parameters
     confidence_threshold: 0.5
@@ -17,29 +17,29 @@ keypoint_detector_node:
     
     # Image processing
     roi:
-      height: 800  # Crop height from top
-      x_min: 360   # Crop width from left
-      x_max: 1160  # Crop width from right
+      height: 1024  # Crop height from top
+      x_min: 0   # Crop width from left
+      x_max: 1024  # Crop width from right
 
 
 motion_tracking_node:
   ros__parameters:
     # Input topics
-    image_topic: "/sensors/zed_l/zed_node/rgb/image_rect_color"
+    image_topic: "/oak/rgb/image_raw/compressed"
     detection_topic: "/inference/Keypoint2DDetArray"
 
     # Image processing ROI
     roi:
-      height: 800
-      x_min: 360
-      x_max: 1160
+      height: 1024
+      x_min: 0
+      x_max: 1024
 
     # Tracking parameters (ByteTrack)
     tracking:
       track_thresh: 0.3
       track_buffer: 30
       match_thresh: 0.9
-      frame_rate: 5
+      frame_rate: 10
       odom_std_weight: 0.025
 
 point_estimator_node:
@@ -49,8 +49,8 @@ point_estimator_node:
     
     # Input topics
     keypoint_topic: "/tracking/tracked_keypoints"
-    depth_topic: "/sensors/zed_l/zed_node/depth/depth_registered"
-    camera_info_topic: "/sensors/zed_l/zed_node/rgb/camera_info"
+    depth_topic: "/oak/stereo/image_raw"
+    camera_info_topic: "/oak/rgb/camera_info"
     
     # Depth estimation parameters
     depth_sample_size: 5
