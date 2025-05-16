@@ -53,12 +53,12 @@ point_estimator_node:
     camera_info_topic: "/oak/rgb/camera_info"
     
     # Depth estimation parameters
-    depth_sample_size: 5
+    depth_sample_size: 13
     
     # Geometric estimation parameters
-    camera_height: 1.0  # meters
-    camera_tilt: 30.0   # degrees
+    camera_height: 0.7  # meters
+    camera_tilt: 0.0   # degrees
     
     # Synchronization parameters
-    sync_queue_size: 10
-    sync_slop: 0.1  # seconds
+    sync_queue_size: 100
+    sync_slop: 0.5  # seconds
