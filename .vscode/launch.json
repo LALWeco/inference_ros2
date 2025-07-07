@@ -5,17 +5,26 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "ROS: Launch",
-            "type": "ros",
+            "name": "Detection launch",
+            "type": "ros2",
             "request": "launch",
-            "target": "${workspaceFolder}/src/inference_ros2/launch/keypoint_detector.launch.py"
+            "preLaunchTask": "build",
+            "target": "/home/docker/ros2_ws/install/inference_ros2/share/inference_ros2/launch/inference.launch.py"
         },
+
         {
-            "name": "Debug: Keypoint Detector",
-            "type": "debugpy",
+            "name": "Tracking launch",
+            "type": "ros2",
             "request": "launch",
-            "program": "${workspaceFolder}/src/inference_ros2/inference_ros2/keypoint_detector_trt.py",
-            "console": "integratedTerminal"
-        }
+            "preLaunchTask": "build",
+            "target": "/home/docker/ros2_ws/install/inference_ros2/share/inference_ros2/launch/tracking.launch.py"
+        },
+        // {
+        //     "name": "ROS2: Tracking Debug",
+        //     "request": "debug_launch",
+        //     "target": "/home/docker/ros2_ws/install/inference_ros2/share/inference_ros2/launch/tracking.launch.py",
+        //     "type": "ros2"
+        // },
+
     ]
 }
