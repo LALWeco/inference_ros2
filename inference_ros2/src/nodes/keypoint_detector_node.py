@@ -89,7 +89,7 @@ class KeypointDetectorNode(Node):
         self.get_logger().info(
             f"Initialized keypoint detector node in {self.operation_mode} mode"
         )
-        self.classes = ["background", "crop", "weed"]
+        self.classes = ["crop", "weed"]
         self.kpt_shape = (1, 3)
         
     def image_callback(self, msg):
@@ -135,8 +135,8 @@ class KeypointDetectorNode(Node):
                 det = outputs[0]
                 preds = self.process_detections(det, pad_shape, orig_image.shape)
                 
-                # TODO ONLY FOR DEBUGGING WE REMOVE THE CROP
-                preds = preds[preds[:, 5] != 1]
+                # # TODO ONLY FOR DEBUGGING WE REMOVE THE CROP
+                # preds = preds[preds[:, 5] != 1]
 
                 # Publish results
                 self.publish_detections(preds, msg.header)
