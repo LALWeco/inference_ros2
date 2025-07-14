@@ -8,7 +8,7 @@
             "label": "build",
             "detail": "Build workspace (default)",
             "type": "shell",
-            "command": "source /opt/ros/humble/setup.bash && colcon build --symlink-install",
+            "command": "source /opt/ros/humble/setup.bash && colcon build --symlink-install && source install/setup.bash",
             "group": {
                 "kind": "build",
                 "isDefault": true

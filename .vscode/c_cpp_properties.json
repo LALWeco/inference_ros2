@@ -1,0 +1,25 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${workspaceFolder}/.vscode/browse.vc.db",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/docker/ros2_ws/install/vision_msgs_rviz_plugins/include/**",
+        "/home/docker/ros2_ws/install/lalweco_perception_msgs/include/**",
+        "/home/docker/ros2_ws/install/vision_msgs/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/docker/ros2_ws/src/vision_msgs/vision_msgs/include/**",
+        "/home/docker/ros2_ws/src/vision_msgs/vision_msgs_rviz_plugins/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ros2",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++17"
+    }
+  ],
+  "version": 4
+}
