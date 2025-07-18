@@ -39,18 +39,18 @@ def generate_launch_description():
     )
     
     # Point estimator node
-    point_estimator = Node(
-        package='inference_ros2',
-        executable='point_estimator_node',
-        name='point_estimator_node', # Match the namespace in params.yaml
-        parameters=[LaunchConfiguration('params_file')],
-        output='screen',
-        emulate_tty=True,
-    )
+    # point_estimator = Node(
+    #     package='inference_ros2',
+    #     executable='point_estimator_node',
+    #     name='point_estimator_node', # Match the namespace in params.yaml
+    #     parameters=[LaunchConfiguration('params_file')],
+    #     output='screen',
+    #     emulate_tty=True,
+    # )
 
     return LaunchDescription([
         params_file,
         model_path,
         keypoint_detector,
-        point_estimator,
+        # point_estimator,
     ])
