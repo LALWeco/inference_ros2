@@ -9,7 +9,7 @@ ARG USERNAME=docker
 ARG USER_UID=1000
 ARG USER_GID=1000
 ENV CONFIG="/home/$USERNAME/ros2_ws/src/inference_ros2/inference_ros2/config/default_params.yaml"
-
+ENV RMW_IMPLEMENTATION=rmw_zenoh_cpp
 # Set shell
 SHELL ["/bin/bash", "-c"]
 
@@ -29,10 +29,10 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # Install ROS2
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | gpg --dearmor -o /usr/share/keyrings/ros-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null && \
     apt-get update && \
-    apt-get install -y ros-humble-desktop ros-dev-tools python3-argcomplete && \
+    apt-get install -y ros-humble-desktop ros-dev-tools ros-humble-rwm-zenoh-cpp python3-argcomplete && \
     rm -rf /var/lib/apt/lists/* && \
     echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
 
