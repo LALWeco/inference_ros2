@@ -35,7 +35,8 @@ class MotionTrackingNode(Node):
                 ("tracking.frame_rate", rclpy.Parameter.Type.INTEGER),
                 ("tracking.odom_std_weight", rclpy.Parameter.Type.DOUBLE),
                 ("use_cuda", rclpy.Parameter.Type.BOOL),  # Use CUDA for GPU acceleration
-                ("visualization", rclpy.Parameter.Type.BOOL)  # Enable visualization
+                ("visualization", rclpy.Parameter.Type.BOOL),  # Enable visualization
+                ("queue_size", rclpy.Parameter.Type.INTEGER),  # Queue size for subscribers, publishers
             ]
         )
         
@@ -155,15 +156,16 @@ class MotionTrackingNode(Node):
                 # Publish tracked results
                 self.publish_tracks(self.online_targets, image_msg.header)
                 
-                # Draw and publish visualization
-                viz_img = draw_tracks(
-                    orig_image, 
-                    self.online_targets,
-                    draw_history=True,
-                    active_color=(0, 255, 0),
-                    history_color=(255, 0, 255)
-                )
-                self.publish_visualization(viz_img, image_msg.header)
+                if self.visualization:
+                    # Draw and publish visualization
+                    viz_img = draw_tracks(
+                        orig_image, 
+                        self.online_targets,
+                        draw_history=True,
+                        active_color=(0, 255, 0),
+                        history_color=(255, 0, 255)
+                    )
+                    self.publish_visualization(viz_img, image_msg.header)
                     
         except Exception as e:
             self.get_logger().error(f"Error processing image: {str(e)}")

@@ -41,7 +41,9 @@ class KeypointDetectorNode(Node):
                 ("max_detections", rclpy.Parameter.Type.INTEGER),
                 ("roi.height", rclpy.Parameter.Type.INTEGER),
                 ("roi.x_min", rclpy.Parameter.Type.INTEGER),
-                ("roi.x_max", rclpy.Parameter.Type.INTEGER)
+                ("roi.x_max", rclpy.Parameter.Type.INTEGER),
+                ("visualization", rclpy.Parameter.Type.BOOL),
+                ("queue_size", rclpy.Parameter.Type.INTEGER),
             ]
         )
         
