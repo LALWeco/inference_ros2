@@ -7,8 +7,12 @@ keypoint_detector_node:
     image_topic: "/oak/rgb/image_raw/compressed"
     
     # Model settings
-    model_precision: "fp32"
-    model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov8-keypoint-det-rtx-2060-fp32-8.6.1-800.engine"
+    # model_precision: "int8"
+    # model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov11m-pose-rtx-2060-int8-8.6.1-800.engine"
+
+    # Model settings
+    model_precision: "fp16"
+    model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov11m-pose-rtx-2060-fp16-8.6.1-800.engine"
     
     # Detection parameters
     confidence_threshold: 0.5
@@ -19,7 +23,7 @@ keypoint_detector_node:
     roi:
       height: 1024  # Crop height from top
       x_min: 0   # Crop width from left
-      x_max: 1024  # Crop width from right
+      x_max: 1400  # Crop width from right
 
 
 motion_tracking_node:
@@ -27,12 +31,12 @@ motion_tracking_node:
     # Input topics
     image_topic: "/oak/rgb/image_raw/compressed"
     detection_topic: "/inference/Keypoint2DDetArray"
-
+    use_cuda: false  # Use CUDA for GPU acceleration
     # Image processing ROI
     roi:
       height: 1024
       x_min: 0
-      x_max: 1024
+      x_max: 1400
 
     # Tracking parameters (ByteTrack)
     tracking:
@@ -45,7 +49,7 @@ motion_tracking_node:
 point_estimator_node:
   ros__parameters:
     # Estimation method ("depth" or "geometric")
-    estimation_method: "depth"
+    estimation_method: "geometric"
     
     # Input topics
     keypoint_topic: "/tracking/tracked_keypoints"
@@ -60,5 +64,5 @@ point_estimator_node:
     camera_tilt: 0.0   # degrees
     
     # Synchronization parameters
-    sync_queue_size: 100
+    sync_queue_size: 50
     sync_slop: 0.5  # seconds

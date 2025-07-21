@@ -355,7 +355,8 @@ class MotionEstimator:
     def _detect_features_cuda(self, gpu_image: cv2.cuda.GpuMat) -> np.ndarray:
         """CUDA-accelerated feature detection."""
         # Use CUDA corner detector
-        cuda_detector = cv2.cuda.GoodFeaturesToTrackDetector_create(
+        cuda_detector = cv2.cuda.createGoodFeaturesToTrackDetector(
+            srcType=0,
             maxCorners=self.max_features,
             qualityLevel=0.1,
             minDistance=10,
@@ -371,7 +372,7 @@ class MotionEstimator:
         corners = gpu_corners.download()
         return corners.reshape(-1, 2)
     
-    def _estimate_motion_cuda(
+    def estimate_motion_cuda(
         self,
         curr_frame: np.ndarray,
         prev_frame: Optional[np.ndarray]
@@ -382,8 +383,8 @@ class MotionEstimator:
         if prev_frame is None:
             self.gpu_prev_gray, _ = self._preprocess_image_cuda(curr_frame)
             # Download to CPU only for feature detection (could be optimized further)
-            cpu_gray = self.gpu_prev_gray.download()
-            self.prev_pts = self._detect_grid_features(cpu_gray)
+            # cpu_gray = self.gpu_prev_gray.download()
+            self.prev_pts = self._detect_features_cuda(self.gpu_prev_gray)
             return MotionEstimate(0.0, 0.0, 10.0, 10.0)
         
         # Preprocess current frame on GPU
@@ -391,16 +392,16 @@ class MotionEstimator:
         
         if self.gpu_prev_gray is None:
             self.gpu_prev_gray, _ = self._preprocess_image_cuda(prev_frame)
-            cpu_prev = self.gpu_prev_gray.download()
-            self.prev_pts = self._detect_grid_features(cpu_prev)
+            # cpu_prev = self.gpu_prev_gray.download()
+            self.prev_pts = self._detect_features_cuda(self.gpu_prev_gray)
             
             if len(self.prev_pts) < self.min_matches:
                 self.gpu_prev_gray = gpu_curr_gray
                 return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         if self.prev_pts is None or len(self.prev_pts) < self.min_matches:
-            cpu_prev = self.gpu_prev_gray.download()
-            self.prev_pts = self._detect_grid_features(cpu_prev)
+            # cpu_prev = self.gpu_prev_gray.download()
+            self.prev_pts = self._detect_features_cuda(self.gpu_prev_gray)
             
             if len(self.prev_pts) < self.min_matches:
                 self.gpu_prev_gray = gpu_curr_gray
@@ -408,7 +409,8 @@ class MotionEstimator:
         
         # Upload points to GPU
         gpu_prev_pts = cv2.cuda.GpuMat()
-        gpu_prev_pts.upload(self.prev_pts.reshape(-1, 1, 2).astype(np.float32))
+        # Ensure points are in the correct format for CUDA 1 x N x 2 and 32FC2 
+        gpu_prev_pts.upload(self.prev_pts.reshape(1, -1, 2).astype(np.float32))
         
         # CUDA optical flow - this is where the major speedup happens
         gpu_curr_pts, gpu_status, gpu_err = self.cuda_optical_flow.calc(
@@ -422,7 +424,7 @@ class MotionEstimator:
         
         # Check if tracking was successful
         if curr_pts is None:
-            self.prev_gray = curr_gray
+            self.prev_gray = gpu_curr_gray
             return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         # Keep only good points
@@ -433,7 +435,7 @@ class MotionEstimator:
         # Check if we have enough good matches
         if len(good_new) < self.min_matches:
             # Reset for next frame
-            self.prev_gray = curr_gray
+            self.prev_gray = gpu_curr_gray
             return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         # Use a simpler transformation model for 2D ground plane motion
@@ -448,7 +450,7 @@ class MotionEstimator:
         )
         
         if transform is None or inliers is None:
-            self.prev_gray = curr_gray
+            self.prev_gray = gpu_curr_gray
             return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         # Extract translation
@@ -469,12 +471,12 @@ class MotionEstimator:
         # Periodically refresh points to avoid drift (every ~5 frames)
         if np.random.random() < 0.2 or len(self.prev_pts) < self.min_matches * 1.5:
             # Add new points to existing ones
-            new_pts = self._detect_grid_features(curr_gray)
+            new_pts = self._detect_grid_features(gpu_curr_gray)
             if len(new_pts) > 0:
                 self.prev_pts = np.vstack([self.prev_pts, new_pts]) if len(self.prev_pts) > 0 else new_pts
         
         # Update previous frame
-        self.prev_gray = curr_gray
+        self.prev_gray = gpu_curr_gray
         
         # Return motion estimate with same format as original
         return MotionEstimate(tx, ty, uncertainty, uncertainty, success=True)

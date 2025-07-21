@@ -33,13 +33,15 @@ class MotionTrackingNode(Node):
                 ("tracking.track_buffer", rclpy.Parameter.Type.INTEGER),
                 ("tracking.match_thresh", rclpy.Parameter.Type.DOUBLE),
                 ("tracking.frame_rate", rclpy.Parameter.Type.INTEGER),
-                ("tracking.odom_std_weight", rclpy.Parameter.Type.DOUBLE)
+                ("tracking.odom_std_weight", rclpy.Parameter.Type.DOUBLE),
+                ("use_cuda", rclpy.Parameter.Type.BOOL),  # Use CUDA for GPU acceleration
             ]
         )
         
         # Get parameters
         self.image_topic = self.get_parameter("image_topic").value
         self.detection_topic = self.get_parameter("detection_topic").value
+        self.use_cuda = self.get_parameter("use_cuda").value
         self.roi = {
             "height": self.get_parameter("roi.height").value,
             "x_min": self.get_parameter("roi.x_min").value,
@@ -122,7 +124,11 @@ class MotionTrackingNode(Node):
             
             if len(dets):
                 # Update motion estimation
-                motion = self.motion_estimator.estimate_motion(cv_image, self.prev_frame)
+                if self.use_cuda:
+                    motion = self.motion_estimator.estimate_motion_cuda(cv_image, self.prev_frame)
+                else:
+                    motion = self.motion_estimator.estimate_motion(cv_image, self.prev_frame)
+
                 self.prev_frame = cv_image.copy()
                 
                 # Update tracker
