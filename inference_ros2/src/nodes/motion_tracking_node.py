@@ -35,6 +35,7 @@ class MotionTrackingNode(Node):
                 ("tracking.frame_rate", rclpy.Parameter.Type.INTEGER),
                 ("tracking.odom_std_weight", rclpy.Parameter.Type.DOUBLE),
                 ("use_cuda", rclpy.Parameter.Type.BOOL),  # Use CUDA for GPU acceleration
+                ("visualization", rclpy.Parameter.Type.BOOL)  # Enable visualization
             ]
         )
         
@@ -42,6 +43,8 @@ class MotionTrackingNode(Node):
         self.image_topic = self.get_parameter("image_topic").value
         self.detection_topic = self.get_parameter("detection_topic").value
         self.use_cuda = self.get_parameter("use_cuda").value
+        self.visualization = self.get_parameter("visualization").value
+        self.queue_size = self.get_parameter("queue_size").value
         self.roi = {
             "height": self.get_parameter("roi.height").value,
             "x_min": self.get_parameter("roi.x_min").value,
@@ -65,13 +68,14 @@ class MotionTrackingNode(Node):
         self.track_pub = self.create_publisher(
             Keypoint2DArray,
             "/tracking/tracked_keypoints",
-            10
+            self.queue_size
         )
-        self.viz_pub = self.create_publisher(
-            Image,
-            "/tracking/visualization",
-            10
-        )
+        if self.visualization:
+            self.viz_pub = self.create_publisher(
+                Image,
+                "/tracking/visualization",
+                self.queue_size
+            )
         
         # Set up synchronized subscribers
         topic_type = CompressedImage if "compressed" in self.image_topic else Image
@@ -89,9 +93,17 @@ class MotionTrackingNode(Node):
         # Time synchronizer for image and detection messages
         self.ts = message_filters.TimeSynchronizer(
             [self.image_sub, self.det_sub],
-            10  # Queue size
+            self.queue_size  # Queue size
         )
         self.ts.registerCallback(self.synchronized_callback)
+        
+        # Pre-allocate arrays to avoid memory allocation overhead
+        self.prev_pts_buffer = np.zeros((1000, 2), dtype=np.float32)
+        self.curr_pts_buffer = np.zeros((1000, 2), dtype=np.float32)
+
+        # Use OpenCV optimizations
+        cv2.setUseOptimized(True)
+        cv2.setNumThreads(4)  # Use multiple cores
         
         self.get_logger().info("Initialized motion tracking node")
         

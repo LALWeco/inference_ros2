@@ -46,8 +46,9 @@ class KeypointDetectorNode(Node):
         )
         
         # Get parameters
-        self.operation_mode = self.get_parameter("operation_mode").value
+        self.visualization = self.get_parameter("visualization").value
         self.image_topic = self.get_parameter("image_topic").value
+        self.queue_size = self.get_parameter("queue_size").value
         self.model_path = self.get_parameter("model_path").value
         self.conf_thresh = self.get_parameter("confidence_threshold").value
         self.iou_thresh = self.get_parameter("iou_threshold").value
@@ -69,13 +70,14 @@ class KeypointDetectorNode(Node):
         self.det_pub = self.create_publisher(
             Keypoint2DArray,
             "/inference/Keypoint2DDetArray",
-            10
+            self.queue_size
         )
-        self.viz_pub = self.create_publisher(
-            Image,
-            "/inference/detection_image",
-            10
-        )
+        if self.visualization:
+            self.viz_pub = self.create_publisher(
+                Image,
+                "/inference/detection_image",
+                self.queue_size
+            )
         
         # Set up subscriber
         topic_type = CompressedImage if "compressed" in self.image_topic else Image
@@ -83,11 +85,11 @@ class KeypointDetectorNode(Node):
             topic_type,
             self.image_topic,
             self.image_callback,
-            10
+            self.queue_size
         )
         
         self.get_logger().info(
-            f"Initialized keypoint detector node in {self.operation_mode} mode"
+            f"Initialized keypoint detector node with visualization set to {self.visualization}."
         )
         self.classes = ["crop", "weed"]
         self.kpt_shape = (1, 3)
@@ -107,11 +109,6 @@ class KeypointDetectorNode(Node):
                 
             if cv_image.shape[2] != 3:
                 cv_image = cv_image[:, :, :3]
-            
-            # # Apply gamma correction for contrast enhancement
-            # gamma = 1.3  # Adjust gamma value as needed
-            # cv_image = np.power(cv_image / 255.0, gamma) * 255.0
-            # cv_image = cv_image.astype(np.uint8)
 
             # Apply ROI cropping
             cv_image = cv_image[:self.roi["height"],
@@ -134,14 +131,11 @@ class KeypointDetectorNode(Node):
                 # Post-process detections
                 det = outputs[0]
                 preds = self.process_detections(det, pad_shape, orig_image.shape)
-                
-                # # TODO ONLY FOR DEBUGGING WE REMOVE THE CROP
-                # preds = preds[preds[:, 5] != 1]
 
                 # Publish results
                 self.publish_detections(preds, msg.header)
                 
-                if self.operation_mode == "detection":
+                if self.visualization:
                     # Draw and publish visualization
                     viz_img = draw_detections(
                         orig_image,

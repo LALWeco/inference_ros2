@@ -1,11 +1,11 @@
 keypoint_detector_node:
   ros__parameters:
     # Operating mode ("detection" or "image")
-    operation_mode: "detection"
+    visualization: true
     
     # Input image topic
     image_topic: "/oak/rgb/image_raw/compressed"
-    
+    queue_size: 10
     # Model settings
     # model_precision: "int8"
     # model_path: "/home/docker/ros2_ws/src/inference_ros2/model/yolov11m-pose-rtx-2060-int8-8.6.1-800.engine"
@@ -30,7 +30,9 @@ motion_tracking_node:
   ros__parameters:
     # Input topics
     image_topic: "/oak/rgb/image_raw/compressed"
+    visualization: true  # Enable visualization
     detection_topic: "/inference/Keypoint2DDetArray"
+    queue_size: 10
     use_cuda: false  # Use CUDA for GPU acceleration
     # Image processing ROI
     roi:
