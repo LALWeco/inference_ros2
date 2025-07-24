@@ -190,20 +190,20 @@ class MotionTrackingNode(Node):
         self.last_callback_time = callback_start_time
         
         # Log synchronization issues
-        if img_age > 1000000 or det_age > 1000000:  # More than 1000 seconds old
-            if self.callback_count % 20 == 1:  # Reduce spam
-                self.get_logger().error(
-                    f"[TIMESTAMP ERROR] Callback #{self.callback_count}: "
-                    f"Img_age={img_age/1000:.1f}s, Det_age={det_age/1000:.1f}s (CLOCK ISSUE!)"
-                )
-        elif callback_interval > 200 or img_age > 500 or det_age > 500 or sync_diff > 100:
-            self.get_logger().warn(
-                f"[SYNC ISSUE] Callback #{self.callback_count}: "
-                f"Interval={callback_interval:.1f}ms, "
-                f"Img_age={img_age:.1f}ms, "
-                f"Det_age={det_age:.1f}ms, "
-                f"Sync_diff={sync_diff:.1f}ms"
-            )
+        # if img_age > 1000000 or det_age > 1000000:  # More than 1000 seconds old
+        #     if self.callback_count % 20 == 1:  # Reduce spam
+        #         self.get_logger().error(
+        #             f"[TIMESTAMP ERROR] Callback #{self.callback_count}: "
+        #             f"Img_age={img_age/1000:.1f}s, Det_age={det_age/1000:.1f}s (CLOCK ISSUE!)"
+        #         )
+        # elif callback_interval > 200 or img_age > 500 or det_age > 500 or sync_diff > 100:
+        #     self.get_logger().warn(
+        #         f"[SYNC ISSUE] Callback #{self.callback_count}: "
+        #         f"Interval={callback_interval:.1f}ms, "
+        #         f"Img_age={img_age:.1f}ms, "
+        #         f"Det_age={det_age:.1f}ms, "
+        #         f"Sync_diff={sync_diff:.1f}ms"
+        #     )
         
         try:
             # Timing: Image loading and preprocessing
