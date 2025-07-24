@@ -74,6 +74,11 @@ class MotionTrackingNode(Node):
         self.latest_detections = None
         self.callback_count = 0  # Add callback counter for debugging
         
+        # Debug timing variables
+        self.last_image_time = None
+        self.last_detection_time = None
+        self.last_callback_time = None
+        
         # Set up publishers
         self.track_pub = self.create_publisher(
             Keypoint2DArray,
@@ -100,10 +105,16 @@ class MotionTrackingNode(Node):
             self.detection_topic
         )
 
+        # Add individual callbacks for debugging message arrival times
+        self.image_sub.registerCallback(self.debug_image_callback)
+        self.det_sub.registerCallback(self.debug_detection_callback)
+
         # Time synchronizer for image and detection messages
-        self.ts = message_filters.TimeSynchronizer(
+        # Use ApproximateTimeSynchronizer for more flexible timing
+        self.ts = message_filters.ApproximateTimeSynchronizer(
             [self.image_sub, self.det_sub],
-            self.queue_size  # Queue size
+            self.queue_size,  # Queue size
+            0.1  # 100ms tolerance - adjust based on your system
         )
         self.ts.registerCallback(self.synchronized_callback)
         
@@ -119,6 +130,42 @@ class MotionTrackingNode(Node):
         self.get_logger().warn(f"Config: CUDA={self.use_cuda}, Visualization={self.visualization}, Queue={self.queue_size}")
         self.get_logger().info("Initialized motion tracking node")
         
+    def debug_image_callback(self, msg):
+        """Debug callback to track image message arrival."""
+        current_time = time.time()
+        msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        
+        if self.last_image_time is not None:
+            interval = (current_time - self.last_image_time) * 1000
+            age = (current_time - msg_time) * 1000
+            # Only log if there are issues (long intervals or old messages)
+            # Reduce spam by logging every 10th message if ages are huge
+            if age > 1000000:  # More than 1000 seconds old
+                if self.callback_count % 20 == 1:  # Log every 20th callback
+                    self.get_logger().error(f"[TIMESTAMP ERROR] Img age: {age/1000:.1f}s (timestamp issue!)")
+            elif interval > 200 or age > 500:
+                self.get_logger().warn(f"[IMG ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms")
+        
+        self.last_image_time = current_time
+        
+    def debug_detection_callback(self, msg):
+        """Debug callback to track detection message arrival."""
+        current_time = time.time()
+        msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        
+        if self.last_detection_time is not None:
+            interval = (current_time - self.last_detection_time) * 1000
+            age = (current_time - msg_time) * 1000
+            # Only log if there are issues (long intervals or old messages)
+            # Reduce spam by logging every 10th message if ages are huge
+            if age > 1000000:  # More than 1000 seconds old
+                if self.callback_count % 20 == 1:  # Log every 20th callback
+                    self.get_logger().error(f"[TIMESTAMP ERROR] Det age: {age/1000:.1f}s, Count: {len(msg.detections)} (timestamp issue!)")
+            elif interval > 200 or age > 500:
+                self.get_logger().warn(f"[DET ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms, Count: {len(msg.detections)}")
+        
+        self.last_detection_time = current_time
+        
     def synchronized_callback(self, image_msg, det_msg):
         """Process synchronized image and detection messages.
         
@@ -129,9 +176,34 @@ class MotionTrackingNode(Node):
         callback_start_time = time.time()
         self.callback_count += 1
         
-        # Log every 10th callback to avoid spam
-        # if self.callback_count % 10 == 1:
-        #     self.get_logger().warn(f"=== Callback #{self.callback_count} triggered ===")
+        # Calculate message ages and synchronization delay
+        img_msg_time = image_msg.header.stamp.sec + image_msg.header.stamp.nanosec * 1e-9
+        det_msg_time = det_msg.header.stamp.sec + det_msg.header.stamp.nanosec * 1e-9
+        img_age = (callback_start_time - img_msg_time) * 1000
+        det_age = (callback_start_time - det_msg_time) * 1000
+        sync_diff = abs(img_msg_time - det_msg_time) * 1000
+        
+        # Calculate callback interval
+        callback_interval = 0
+        if self.last_callback_time is not None:
+            callback_interval = (callback_start_time - self.last_callback_time) * 1000
+        self.last_callback_time = callback_start_time
+        
+        # Log synchronization issues
+        if img_age > 1000000 or det_age > 1000000:  # More than 1000 seconds old
+            if self.callback_count % 20 == 1:  # Reduce spam
+                self.get_logger().error(
+                    f"[TIMESTAMP ERROR] Callback #{self.callback_count}: "
+                    f"Img_age={img_age/1000:.1f}s, Det_age={det_age/1000:.1f}s (CLOCK ISSUE!)"
+                )
+        elif callback_interval > 200 or img_age > 500 or det_age > 500 or sync_diff > 100:
+            self.get_logger().warn(
+                f"[SYNC ISSUE] Callback #{self.callback_count}: "
+                f"Interval={callback_interval:.1f}ms, "
+                f"Img_age={img_age:.1f}ms, "
+                f"Det_age={det_age:.1f}ms, "
+                f"Sync_diff={sync_diff:.1f}ms"
+            )
         
         try:
             # Timing: Image loading and preprocessing
@@ -212,31 +284,32 @@ class MotionTrackingNode(Node):
                 # Calculate total time
                 total_time = (publish_end_time - callback_start_time) * 1000  # Convert to ms
                 
-                # Log timing summary
-                self.get_logger().warn(
-                    f"Tracking timing [ms] - "
-                    f"Image: {img_processing_time:.1f}, "
-                    f"Motion: {motion_time:.1f}, "
-                    f"Tracking: {tracking_time:.1f}, "
-                    f"Publish: {publish_time:.1f}, "
-                    f"Total: {total_time:.1f} "
-                    f"({'CUDA' if self.use_cuda else 'CPU'}) - "
-                    f"Dets: {len(dets)}, Tracks: {len(self.online_targets)}"
-                )
+                # Log timing summary (every 5th callback or if slow)
+                if self.callback_count % 5 == 1 or total_time > 100:
+                    self.get_logger().warn(
+                        f"[TIMING] #{self.callback_count}: "
+                        f"Img={img_processing_time:.1f}ms, "
+                        f"Motion={motion_time:.1f}ms, "
+                        f"Track={tracking_time:.1f}ms, "
+                        f"Pub={publish_time:.1f}ms, "
+                        f"Total={total_time:.1f}ms "
+                        f"({'CUDA' if self.use_cuda else 'CPU'}) "
+                        f"Dets={len(dets)}, Tracks={len(self.online_targets)}"
+                    )
             else:
                 # No detections case
                 total_time = (time.time() - callback_start_time) * 1000
-                self.get_logger().warn(
-                    f"Tracking timing [ms] - "
-                    f"Image: {img_processing_time:.1f}, "
-                    f"No detections, "
-                    f"Total: {total_time:.1f}"
-                )
+                if self.callback_count % 10 == 1:
+                    self.get_logger().warn(
+                        f"[NO DETS] #{self.callback_count}: "
+                        f"Img={img_processing_time:.1f}ms, "
+                        f"Total={total_time:.1f}ms"
+                    )
                     
                     
         except Exception as e:
             total_time = (time.time() - callback_start_time) * 1000
-            self.get_logger().error(f"Error processing image after {total_time:.1f}ms: {str(e)}")
+            self.get_logger().error(f"[ERROR] After {total_time:.1f}ms: {str(e)}")
     
     def convert_detections(self, det_msg: Keypoint2DArray) -> np.ndarray:
         """Convert detection message to numpy array format for tracker.
