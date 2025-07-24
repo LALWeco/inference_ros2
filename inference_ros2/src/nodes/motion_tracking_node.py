@@ -128,23 +128,23 @@ class MotionTrackingNode(Node):
         
         self.get_logger().warn("=== Motion Tracking Node Initialized Successfully ===")
         self.get_logger().warn(f"Config: CUDA={self.use_cuda}, Visualization={self.visualization}, Queue={self.queue_size}")
-        # self.get_logger().info("Initialized motion tracking node")
+        self.get_logger().info("Initialized motion tracking node")
         
     def debug_image_callback(self, msg):
         """Debug callback to track image message arrival."""
         current_time = time.time()
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         
-        # if self.last_image_time is not None:
-        #     interval = (current_time - self.last_image_time) * 1000
-        #     age = (current_time - msg_time) * 1000
-        #     # Only log if there are issues (long intervals or old messages)
-        #     # Reduce spam by logging every 10th message if ages are huge
-        #     if age > 1000000:  # More than 1000 seconds old
-        #         if self.callback_count % 20 == 1:  # Log every 20th callback
-        #             self.get_logger().error(f"[TIMESTAMP ERROR] Img age: {age/1000:.1f}s (timestamp issue!)")
-        #     elif interval > 200 or age > 500:
-        #         self.get_logger().warn(f"[IMG ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms")
+        if self.last_image_time is not None:
+            interval = (current_time - self.last_image_time) * 1000
+            age = (current_time - msg_time) * 1000
+            # Only log if there are issues (long intervals or old messages)
+            # Reduce spam by logging every 10th message if ages are huge
+            if age > 1000000:  # More than 1000 seconds old
+                if self.callback_count % 20 == 1:  # Log every 20th callback
+                    self.get_logger().error(f"[TIMESTAMP ERROR] Img age: {age/1000:.1f}s (timestamp issue!)")
+            elif interval > 200 or age > 500:
+                self.get_logger().warn(f"[IMG ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms")
         
         self.last_image_time = current_time
         
@@ -153,16 +153,16 @@ class MotionTrackingNode(Node):
         current_time = time.time()
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         
-        # if self.last_detection_time is not None:
-        #     interval = (current_time - self.last_detection_time) * 1000
-        #     age = (current_time - msg_time) * 1000
+        if self.last_detection_time is not None:
+            interval = (current_time - self.last_detection_time) * 1000
+            age = (current_time - msg_time) * 1000
             # Only log if there are issues (long intervals or old messages)
             # Reduce spam by logging every 10th message if ages are huge
-            # if age > 1000000:  # More than 1000 seconds old
-            #     if self.callback_count % 20 == 1:  # Log every 20th callback
-            #         self.get_logger().error(f"[TIMESTAMP ERROR] Det age: {age/1000:.1f}s, Count: {len(msg.detections)} (timestamp issue!)")
-            # elif interval > 200 or age > 500:
-            #     self.get_logger().warn(f"[DET ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms, Count: {len(msg.detections)}")
+            if age > 1000000:  # More than 1000 seconds old
+                if self.callback_count % 20 == 1:  # Log every 20th callback
+                    self.get_logger().error(f"[TIMESTAMP ERROR] Det age: {age/1000:.1f}s, Count: {len(msg.detections)} (timestamp issue!)")
+            elif interval > 200 or age > 500:
+                self.get_logger().warn(f"[DET ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms, Count: {len(msg.detections)}")
         
         self.last_detection_time = current_time
         
@@ -190,20 +190,20 @@ class MotionTrackingNode(Node):
         self.last_callback_time = callback_start_time
         
         # Log synchronization issues
-        # if img_age > 1000000 or det_age > 1000000:  # More than 1000 seconds old
-        #     if self.callback_count % 20 == 1:  # Reduce spam
-        #         self.get_logger().error(
-        #             f"[TIMESTAMP ERROR] Callback #{self.callback_count}: "
-        #             f"Img_age={img_age/1000:.1f}s, Det_age={det_age/1000:.1f}s (CLOCK ISSUE!)"
-        #         )
-        # elif callback_interval > 200 or img_age > 500 or det_age > 500 or sync_diff > 100:
-        #     self.get_logger().warn(
-        #         f"[SYNC ISSUE] Callback #{self.callback_count}: "
-        #         f"Interval={callback_interval:.1f}ms, "
-        #         f"Img_age={img_age:.1f}ms, "
-        #         f"Det_age={det_age:.1f}ms, "
-        #         f"Sync_diff={sync_diff:.1f}ms"
-        #     )
+        if img_age > 1000000 or det_age > 1000000:  # More than 1000 seconds old
+            if self.callback_count % 20 == 1:  # Reduce spam
+                self.get_logger().error(
+                    f"[TIMESTAMP ERROR] Callback #{self.callback_count}: "
+                    f"Img_age={img_age/1000:.1f}s, Det_age={det_age/1000:.1f}s (CLOCK ISSUE!)"
+                )
+        elif callback_interval > 200 or img_age > 500 or det_age > 500 or sync_diff > 100:
+            self.get_logger().warn(
+                f"[SYNC ISSUE] Callback #{self.callback_count}: "
+                f"Interval={callback_interval:.1f}ms, "
+                f"Img_age={img_age:.1f}ms, "
+                f"Det_age={det_age:.1f}ms, "
+                f"Sync_diff={sync_diff:.1f}ms"
+            )
         
         try:
             # Timing: Image loading and preprocessing
