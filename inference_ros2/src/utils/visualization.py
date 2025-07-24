@@ -36,6 +36,7 @@ def draw_detections(
             # Draw class label
             class_id = int(box[5]) if len(box) > 5 else 0
             class_name = class_names[class_id]
+            # class_name = 'plant'
             conf = round(box[4], 2) if len(box) > 4 else 1.0
             label = f"{class_name} {conf:.2f}"
             
@@ -112,11 +113,11 @@ def draw_tracks(
                 points = np.array(track.track_history, dtype=np.int32)
                 
                 # Draw history line
-                cv2.polylines(img, [points], False, history_color, 2)
+                # cv2.polylines(img, [points], False, history_color, 2)
                 
                 # Draw history points
-                for point in points:
-                    cv2.circle(img, tuple(point), 3, active_color, -1)
+                # for point in points:
+                #     cv2.circle(img, tuple(point), 3, active_color, -1)
     
     # Draw lost tracks with faded appearance
     if draw_history:
