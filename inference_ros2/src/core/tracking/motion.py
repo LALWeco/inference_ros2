@@ -424,7 +424,7 @@ class MotionEstimator:
         
         # Check if tracking was successful
         if curr_pts is None:
-            self.prev_gray = gpu_curr_gray
+            self.gpu_prev_gray = gpu_curr_gray
             return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         # Keep only good points
@@ -435,7 +435,7 @@ class MotionEstimator:
         # Check if we have enough good matches
         if len(good_new) < self.min_matches:
             # Reset for next frame
-            self.prev_gray = gpu_curr_gray
+            self.gpu_prev_gray = gpu_curr_gray
             return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         # Use a simpler transformation model for 2D ground plane motion
@@ -450,7 +450,7 @@ class MotionEstimator:
         )
         
         if transform is None or inliers is None:
-            self.prev_gray = gpu_curr_gray
+            self.gpu_prev_gray = gpu_curr_gray
             return MotionEstimate(0.0, 0.0, 10.0, 10.0, success=False)
         
         # Extract translation
@@ -470,13 +470,13 @@ class MotionEstimator:
         
         # Periodically refresh points to avoid drift (every ~5 frames)
         if np.random.random() < 0.2 or len(self.prev_pts) < self.min_matches * 1.5:
-            # Add new points to existing ones
-            new_pts = self._detect_grid_features(gpu_curr_gray)
+            # Add new points to existing ones - use CUDA feature detection
+            new_pts = self._detect_features_cuda(gpu_curr_gray)
             if len(new_pts) > 0:
                 self.prev_pts = np.vstack([self.prev_pts, new_pts]) if len(self.prev_pts) > 0 else new_pts
         
         # Update previous frame
-        self.prev_gray = gpu_curr_gray
+        self.gpu_prev_gray = gpu_curr_gray
         
         # Return motion estimate with same format as original
         return MotionEstimate(tx, ty, uncertainty, uncertainty, success=True)
