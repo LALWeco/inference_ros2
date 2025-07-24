@@ -101,7 +101,8 @@ class MotionTrackingNode(Node):
         # Performance tracking for periodic summaries
         self.sync_issues_count = 0
         self.total_processing_time = 0
-        self.last_summary_time = time.time()
+        # Initialize with ROS time instead of system time
+        self.last_summary_time = self.get_clock().now().nanoseconds * 1e-9
         
         # Memory monitoring and cleanup
         self.processed_frames = 0
@@ -167,12 +168,13 @@ class MotionTrackingNode(Node):
         
     def debug_image_callback(self, msg):
         """Debug callback to track image message arrival."""
-        current_time = time.time()
+        # Use ROS time instead of system time for consistent timing
+        current_ros_time = self.get_clock().now().nanoseconds * 1e-9
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         
         if self.last_image_time is not None:
-            interval = (current_time - self.last_image_time) * 1000
-            age = (current_time - msg_time) * 1000
+            interval = (current_ros_time - self.last_image_time) * 1000
+            age = (current_ros_time - msg_time) * 1000
             # Much more aggressive filtering - only log severe issues
             if age > 1000000:  # More than 1000 seconds old
                 if self.callback_count % 100 == 1:  # Log every 100th callback only
@@ -181,16 +183,17 @@ class MotionTrackingNode(Node):
                 if self.callback_count % 50 == 1:  # Log every 50th occurrence
                     self.get_logger().warn(f"[IMG ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms")
         
-        self.last_image_time = current_time
+        self.last_image_time = current_ros_time
         
     def debug_detection_callback(self, msg):
         """Debug callback to track detection message arrival."""
-        current_time = time.time()
+        # Use ROS time instead of system time for consistent timing
+        current_ros_time = self.get_clock().now().nanoseconds * 1e-9
         msg_time = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         
         if self.last_detection_time is not None:
-            interval = (current_time - self.last_detection_time) * 1000
-            age = (current_time - msg_time) * 1000
+            interval = (current_ros_time - self.last_detection_time) * 1000
+            age = (current_ros_time - msg_time) * 1000
             # Much more aggressive filtering - only log severe issues
             if age > 1000000:  # More than 1000 seconds old
                 if self.callback_count % 100 == 1:  # Log every 100th callback only
@@ -199,7 +202,7 @@ class MotionTrackingNode(Node):
                 if self.callback_count % 50 == 1:  # Log every 50th occurrence
                     self.get_logger().warn(f"[DET ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms, Count: {len(msg.detections)}")
         
-        self.last_detection_time = current_time
+        self.last_detection_time = current_ros_time
         
     def synchronized_callback(self, image_msg, det_msg):
         """Process synchronized image and detection messages.
@@ -208,7 +211,8 @@ class MotionTrackingNode(Node):
             image_msg: ROS image message
             det_msg: Detection array message
         """
-        callback_start_time = time.time()
+        # Use ROS time instead of system time for consistent timing
+        callback_start_time = self.get_clock().now().nanoseconds * 1e-9
         self.callback_count += 1
         
         # Calculate message ages and synchronization delay
@@ -244,7 +248,8 @@ class MotionTrackingNode(Node):
         
         try:
             # Timing: Image loading and preprocessing
-            img_start_time = time.time()
+            # Use ROS time for all timing measurements
+            img_start_time = self.get_clock().now().nanoseconds * 1e-9
             
             # Convert message to OpenCV image
             if isinstance(image_msg, CompressedImage):
@@ -265,7 +270,7 @@ class MotionTrackingNode(Node):
             # Convert detections to format expected by tracker
             dets = self.convert_detections(det_msg)
             
-            img_end_time = time.time()
+            img_end_time = self.get_clock().now().nanoseconds * 1e-9
             img_processing_time = (img_end_time - img_start_time) * 1000  # Convert to ms
             
             if len(dets):
@@ -273,7 +278,7 @@ class MotionTrackingNode(Node):
                 self.processed_frames += 1
                 
                 # Timing: Motion estimation
-                motion_start_time = time.time()
+                motion_start_time = self.get_clock().now().nanoseconds * 1e-9
                 
                 # Update motion estimation
                 if self.use_cuda:
@@ -283,11 +288,11 @@ class MotionTrackingNode(Node):
 
                 self.prev_frame = cv_image.copy()
                 
-                motion_end_time = time.time()
+                motion_end_time = self.get_clock().now().nanoseconds * 1e-9
                 motion_time = (motion_end_time - motion_start_time) * 1000  # Convert to ms
                 
                 # Timing: Tracking update
-                tracking_start_time = time.time()
+                tracking_start_time = self.get_clock().now().nanoseconds * 1e-9
                 
                 # Limit number of detections to prevent tracker overload
                 if len(dets) > 100:  # Arbitrary limit to prevent performance issues
@@ -311,11 +316,11 @@ class MotionTrackingNode(Node):
                     self.online_targets = self.online_targets[-self.max_tracks:]
                     self.get_logger().warn(f"[CLEANUP] Limited tracks to {self.max_tracks}")
                 
-                tracking_end_time = time.time()
+                tracking_end_time = self.get_clock().now().nanoseconds * 1e-9
                 tracking_time = (tracking_end_time - tracking_start_time) * 1000  # Convert to ms
                 
                 # Timing: Publishing
-                publish_start_time = time.time()
+                publish_start_time = self.get_clock().now().nanoseconds * 1e-9
                 
                 # Publish tracked results
                 self.publish_tracks(self.online_targets, image_msg.header)
@@ -331,7 +336,7 @@ class MotionTrackingNode(Node):
                     )
                     self.publish_visualization(viz_img, image_msg.header)
                 
-                publish_end_time = time.time()
+                publish_end_time = self.get_clock().now().nanoseconds * 1e-9
                 publish_time = (publish_end_time - publish_start_time) * 1000  # Convert to ms
                 
                 # Calculate total time
@@ -352,7 +357,7 @@ class MotionTrackingNode(Node):
                     )
             else:
                 # No detections case - much less frequent logging
-                total_time = (time.time() - callback_start_time) * 1000
+                total_time = (self.get_clock().now().nanoseconds * 1e-9 - callback_start_time) * 1000
                 if self.callback_count % 100 == 1:  # Every 100th callback
                     self.get_logger().warn(
                         f"[NO DETS] #{self.callback_count}: "
@@ -362,7 +367,7 @@ class MotionTrackingNode(Node):
                     
                     
         except Exception as e:
-            total_time = (time.time() - callback_start_time) * 1000
+            total_time = (self.get_clock().now().nanoseconds * 1e-9 - callback_start_time) * 1000
             self.get_logger().error(f"[ERROR] After {total_time:.1f}ms: {str(e)}")
     
     def convert_detections(self, det_msg: Keypoint2DArray) -> np.ndarray:
@@ -464,7 +469,8 @@ class MotionTrackingNode(Node):
         
     def log_performance_summary(self):
         """Log periodic performance summary instead of spamming individual messages."""
-        current_time = time.time()
+        # Use ROS time for consistent timing
+        current_time = self.get_clock().now().nanoseconds * 1e-9
         time_since_last = current_time - self.last_summary_time
         
         if self.callback_count > 0:
