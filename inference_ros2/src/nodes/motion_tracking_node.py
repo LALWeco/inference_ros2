@@ -8,6 +8,7 @@ from sensor_msgs.msg import CompressedImage, Image
 from vision_msgs.msg import Detection2D
 from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
 import message_filters
+import time
 
 from ..core.tracking.motion import MotionEstimator
 from ..utils.visualization import draw_detections, draw_tracks
@@ -44,8 +45,15 @@ class MotionTrackingNode(Node):
         self.image_topic = self.get_parameter("image_topic").value
         self.detection_topic = self.get_parameter("detection_topic").value
         self.use_cuda = self.get_parameter("use_cuda").value
-        self.visualization = self.get_parameter("visualization").value
-        self.queue_size = self.get_parameter("queue_size").value
+        # Set default values for parameters that might not be in config
+        try:
+            self.visualization = self.get_parameter("visualization").value
+        except:
+            self.visualization = True  # Default to True if not specified
+        try:
+            self.queue_size = self.get_parameter("queue_size").value
+        except:
+            self.queue_size = 10  # Default queue size
         self.roi = {
             "height": self.get_parameter("roi.height").value,
             "x_min": self.get_parameter("roi.x_min").value,
@@ -64,6 +72,7 @@ class MotionTrackingNode(Node):
         self.motion_estimator = MotionEstimator()
         self.prev_frame = None
         self.latest_detections = None
+        self.callback_count = 0  # Add callback counter for debugging
         
         # Set up publishers
         self.track_pub = self.create_publisher(
@@ -106,6 +115,8 @@ class MotionTrackingNode(Node):
         cv2.setUseOptimized(True)
         cv2.setNumThreads(4)  # Use multiple cores
         
+        self.get_logger().warn("=== Motion Tracking Node Initialized Successfully ===")
+        self.get_logger().warn(f"Config: CUDA={self.use_cuda}, Visualization={self.visualization}, Queue={self.queue_size}")
         self.get_logger().info("Initialized motion tracking node")
         
     def synchronized_callback(self, image_msg, det_msg):
@@ -115,7 +126,17 @@ class MotionTrackingNode(Node):
             image_msg: ROS image message
             det_msg: Detection array message
         """
+        callback_start_time = time.time()
+        self.callback_count += 1
+        
+        # Log every 10th callback to avoid spam
+        # if self.callback_count % 10 == 1:
+        #     self.get_logger().warn(f"=== Callback #{self.callback_count} triggered ===")
+        
         try:
+            # Timing: Image loading and preprocessing
+            img_start_time = time.time()
+            
             # Convert message to OpenCV image
             if isinstance(image_msg, CompressedImage):
                 cv_image = self.bridge.compressed_imgmsg_to_cv2(image_msg)
@@ -135,7 +156,13 @@ class MotionTrackingNode(Node):
             # Convert detections to format expected by tracker
             dets = self.convert_detections(det_msg)
             
+            img_end_time = time.time()
+            img_processing_time = (img_end_time - img_start_time) * 1000  # Convert to ms
+            
             if len(dets):
+                # Timing: Motion estimation
+                motion_start_time = time.time()
+                
                 # Update motion estimation
                 if self.use_cuda:
                     motion = self.motion_estimator.estimate_motion_cuda(cv_image, self.prev_frame)
@@ -143,6 +170,12 @@ class MotionTrackingNode(Node):
                     motion = self.motion_estimator.estimate_motion(cv_image, self.prev_frame)
 
                 self.prev_frame = cv_image.copy()
+                
+                motion_end_time = time.time()
+                motion_time = (motion_end_time - motion_start_time) * 1000  # Convert to ms
+                
+                # Timing: Tracking update
+                tracking_start_time = time.time()
                 
                 # Update tracker
                 self.online_targets = self.tracker.update(
@@ -152,6 +185,12 @@ class MotionTrackingNode(Node):
                     odom_vy=motion.translation_y,
                     odom_uncertainty=(motion.uncertainty_x, motion.uncertainty_y)
                 )
+                
+                tracking_end_time = time.time()
+                tracking_time = (tracking_end_time - tracking_start_time) * 1000  # Convert to ms
+                
+                # Timing: Publishing
+                publish_start_time = time.time()
                 
                 # Publish tracked results
                 self.publish_tracks(self.online_targets, image_msg.header)
@@ -166,9 +205,38 @@ class MotionTrackingNode(Node):
                         history_color=(255, 0, 255)
                     )
                     self.publish_visualization(viz_img, image_msg.header)
+                
+                publish_end_time = time.time()
+                publish_time = (publish_end_time - publish_start_time) * 1000  # Convert to ms
+                
+                # Calculate total time
+                total_time = (publish_end_time - callback_start_time) * 1000  # Convert to ms
+                
+                # Log timing summary
+                self.get_logger().warn(
+                    f"Tracking timing [ms] - "
+                    f"Image: {img_processing_time:.1f}, "
+                    f"Motion: {motion_time:.1f}, "
+                    f"Tracking: {tracking_time:.1f}, "
+                    f"Publish: {publish_time:.1f}, "
+                    f"Total: {total_time:.1f} "
+                    f"({'CUDA' if self.use_cuda else 'CPU'}) - "
+                    f"Dets: {len(dets)}, Tracks: {len(self.online_targets)}"
+                )
+            else:
+                # No detections case
+                total_time = (time.time() - callback_start_time) * 1000
+                self.get_logger().warn(
+                    f"Tracking timing [ms] - "
+                    f"Image: {img_processing_time:.1f}, "
+                    f"No detections, "
+                    f"Total: {total_time:.1f}"
+                )
+                    
                     
         except Exception as e:
-            self.get_logger().error(f"Error processing image: {str(e)}")
+            total_time = (time.time() - callback_start_time) * 1000
+            self.get_logger().error(f"Error processing image after {total_time:.1f}ms: {str(e)}")
     
     def convert_detections(self, det_msg: Keypoint2DArray) -> np.ndarray:
         """Convert detection message to numpy array format for tracker.
