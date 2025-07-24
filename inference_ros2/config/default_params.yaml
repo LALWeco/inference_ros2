@@ -1,7 +1,7 @@
 keypoint_detector_node:
   ros__parameters:
     # Operating mode ("detection" or "image")
-    visualization: true
+    visualization: false
     
     # Input image topic
     image_topic: "/oak/rgb/image_raw/compressed"
@@ -30,10 +30,15 @@ motion_tracking_node:
   ros__parameters:
     # Input topics
     image_topic: "/oak/rgb/image_raw/compressed"
-    visualization: true  # Enable visualization
     detection_topic: "/inference/Keypoint2DDetArray"
-    queue_size: 10
     use_cuda: false  # Use CUDA for GPU acceleration
+    visualization: false  # Enable visualization output
+    queue_size: 10  # Queue size for subscribers and publishers
+    
+    # Memory management parameters
+    tracker_reset_interval: 500  # Reset tracker every N frames to prevent memory accumulation
+    max_tracks: 30  # Maximum number of tracks to maintain (prevents memory issues)
+    
     # Image processing ROI
     roi:
       height: 1024

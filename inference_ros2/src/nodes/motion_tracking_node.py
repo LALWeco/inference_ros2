@@ -9,6 +9,15 @@ from vision_msgs.msg import Detection2D
 from lalweco_perception_msgs.msg import Keypoint2D, Keypoint2DArray
 import message_filters
 import time
+import gc
+import os
+
+# Import psutil with fallback
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 from ..core.tracking.motion import MotionEstimator
 from ..utils.visualization import draw_detections, draw_tracks
@@ -38,6 +47,8 @@ class MotionTrackingNode(Node):
                 ("use_cuda", rclpy.Parameter.Type.BOOL),  # Use CUDA for GPU acceleration
                 ("visualization", rclpy.Parameter.Type.BOOL),  # Enable visualization
                 ("queue_size", rclpy.Parameter.Type.INTEGER),  # Queue size for subscribers, publishers
+                ("tracker_reset_interval", rclpy.Parameter.Type.INTEGER),  # Reset tracker every N frames
+                ("max_tracks", rclpy.Parameter.Type.INTEGER),  # Maximum number of tracks to maintain
             ]
         )
         
@@ -54,6 +65,14 @@ class MotionTrackingNode(Node):
             self.queue_size = self.get_parameter("queue_size").value
         except:
             self.queue_size = 10  # Default queue size
+        try:
+            self.tracker_reset_interval = self.get_parameter("tracker_reset_interval").value
+        except:
+            self.tracker_reset_interval = 1000  # Default: reset every 1000 frames
+        try:
+            self.max_tracks = self.get_parameter("max_tracks").value
+        except:
+            self.max_tracks = 50  # Default: max 50 tracks
         self.roi = {
             "height": self.get_parameter("roi.height").value,
             "x_min": self.get_parameter("roi.x_min").value,
@@ -84,8 +103,16 @@ class MotionTrackingNode(Node):
         self.total_processing_time = 0
         self.last_summary_time = time.time()
         
+        # Memory monitoring and cleanup
+        self.processed_frames = 0
+        # Use the configured values instead of hardcoded ones
+        # self.tracker_reset_interval and self.max_tracks are now set from parameters
+        
         # Create periodic diagnostic timer
         self.create_timer(30.0, self.log_performance_summary)  # Every 30 seconds
+        
+        # Create periodic cleanup timer
+        self.create_timer(60.0, self.periodic_cleanup)  # Every 60 seconds
         
         # Set up publishers
         self.track_pub = self.create_publisher(
@@ -242,6 +269,9 @@ class MotionTrackingNode(Node):
             img_processing_time = (img_end_time - img_start_time) * 1000  # Convert to ms
             
             if len(dets):
+                # Increment frame counter for cleanup tracking
+                self.processed_frames += 1
+                
                 # Timing: Motion estimation
                 motion_start_time = time.time()
                 
@@ -259,6 +289,13 @@ class MotionTrackingNode(Node):
                 # Timing: Tracking update
                 tracking_start_time = time.time()
                 
+                # Limit number of detections to prevent tracker overload
+                if len(dets) > 100:  # Arbitrary limit to prevent performance issues
+                    # Keep only the highest confidence detections
+                    confidence_scores = dets[:, 4]
+                    top_indices = np.argsort(confidence_scores)[-100:]  # Top 100
+                    dets = dets[top_indices]
+                
                 # Update tracker
                 self.online_targets = self.tracker.update(
                     dets,
@@ -267,6 +304,12 @@ class MotionTrackingNode(Node):
                     odom_vy=motion.translation_y,
                     odom_uncertainty=(motion.uncertainty_x, motion.uncertainty_y)
                 )
+                
+                # Limit number of active tracks to prevent memory accumulation
+                if len(self.online_targets) > self.max_tracks:
+                    # Keep only the most recent tracks
+                    self.online_targets = self.online_targets[-self.max_tracks:]
+                    self.get_logger().warn(f"[CLEANUP] Limited tracks to {self.max_tracks}")
                 
                 tracking_end_time = time.time()
                 tracking_time = (tracking_end_time - tracking_start_time) * 1000  # Convert to ms
@@ -442,6 +485,47 @@ class MotionTrackingNode(Node):
         self.sync_issues_count = 0
         self.total_processing_time = 0
         self.last_summary_time = current_time
+        
+    def periodic_cleanup(self):
+        """Perform periodic cleanup to prevent memory accumulation."""
+        
+        # Get memory usage if psutil is available
+        memory_mb = 0
+        if PSUTIL_AVAILABLE:
+            try:
+                process = psutil.Process(os.getpid())
+                memory_mb = process.memory_info().rss / 1024 / 1024
+            except:
+                memory_mb = 0
+        
+        # Reset tracker periodically to prevent memory accumulation
+        if self.processed_frames > self.tracker_reset_interval:
+            self.get_logger().warn(f"[CLEANUP] Resetting tracker after {self.processed_frames} frames. Memory: {memory_mb:.1f}MB")
+            
+            # Reinitialize tracker to clear accumulated state
+            self.tracker = BYTETracker(
+                track_thresh=self.get_parameter("tracking.track_thresh").value,
+                track_buffer=self.get_parameter("tracking.track_buffer").value,
+                match_thresh=self.get_parameter("tracking.match_thresh").value,
+                frame_rate=self.get_parameter("tracking.frame_rate").value,
+                odom_std_weight=self.get_parameter("tracking.odom_std_weight").value
+            )
+            
+            # Reset frame counter
+            self.processed_frames = 0
+            
+            # Force garbage collection
+            gc.collect()
+            
+        # Log memory usage
+        if PSUTIL_AVAILABLE:
+            if memory_mb > 500:  # Log if using more than 500MB
+                self.get_logger().warn(f"[MEMORY] High memory usage: {memory_mb:.1f}MB, Frames: {self.processed_frames}")
+            elif self.processed_frames % 100 == 0:  # Log every 100 frames
+                self.get_logger().info(f"[MEMORY] Current usage: {memory_mb:.1f}MB, Frames: {self.processed_frames}")
+        else:
+            if self.processed_frames % 200 == 0:  # Log every 200 frames if no psutil
+                self.get_logger().info(f"[MEMORY] psutil not available, Frames: {self.processed_frames}")
 
 def main():
     rclpy.init()
