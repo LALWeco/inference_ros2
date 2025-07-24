@@ -79,6 +79,14 @@ class MotionTrackingNode(Node):
         self.last_detection_time = None
         self.last_callback_time = None
         
+        # Performance tracking for periodic summaries
+        self.sync_issues_count = 0
+        self.total_processing_time = 0
+        self.last_summary_time = time.time()
+        
+        # Create periodic diagnostic timer
+        self.create_timer(30.0, self.log_performance_summary)  # Every 30 seconds
+        
         # Set up publishers
         self.track_pub = self.create_publisher(
             Keypoint2DArray,
@@ -138,13 +146,13 @@ class MotionTrackingNode(Node):
         if self.last_image_time is not None:
             interval = (current_time - self.last_image_time) * 1000
             age = (current_time - msg_time) * 1000
-            # Only log if there are issues (long intervals or old messages)
-            # Reduce spam by logging every 10th message if ages are huge
+            # Much more aggressive filtering - only log severe issues
             if age > 1000000:  # More than 1000 seconds old
-                if self.callback_count % 20 == 1:  # Log every 20th callback
-                    self.get_logger().error(f"[TIMESTAMP ERROR] Img age: {age/1000:.1f}s (timestamp issue!)")
-            elif interval > 200 or age > 500:
-                self.get_logger().warn(f"[IMG ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms")
+                if self.callback_count % 100 == 1:  # Log every 100th callback only
+                    self.get_logger().error(f"[TIMESTAMP ERROR] Img age: {age/1000:.1f}s")
+            elif interval > 500 or age > 2000:  # Much higher thresholds
+                if self.callback_count % 50 == 1:  # Log every 50th occurrence
+                    self.get_logger().warn(f"[IMG ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms")
         
         self.last_image_time = current_time
         
@@ -156,13 +164,13 @@ class MotionTrackingNode(Node):
         if self.last_detection_time is not None:
             interval = (current_time - self.last_detection_time) * 1000
             age = (current_time - msg_time) * 1000
-            # Only log if there are issues (long intervals or old messages)
-            # Reduce spam by logging every 10th message if ages are huge
+            # Much more aggressive filtering - only log severe issues
             if age > 1000000:  # More than 1000 seconds old
-                if self.callback_count % 20 == 1:  # Log every 20th callback
-                    self.get_logger().error(f"[TIMESTAMP ERROR] Det age: {age/1000:.1f}s, Count: {len(msg.detections)} (timestamp issue!)")
-            elif interval > 200 or age > 500:
-                self.get_logger().warn(f"[DET ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms, Count: {len(msg.detections)}")
+                if self.callback_count % 100 == 1:  # Log every 100th callback only
+                    self.get_logger().error(f"[TIMESTAMP ERROR] Det age: {age/1000:.1f}s, Count: {len(msg.detections)}")
+            elif interval > 500 or age > 2000:  # Much higher thresholds
+                if self.callback_count % 50 == 1:  # Log every 50th occurrence
+                    self.get_logger().warn(f"[DET ISSUE] Interval: {interval:.1f}ms, Age: {age:.1f}ms, Count: {len(msg.detections)}")
         
         self.last_detection_time = current_time
         
@@ -189,21 +197,23 @@ class MotionTrackingNode(Node):
             callback_interval = (callback_start_time - self.last_callback_time) * 1000
         self.last_callback_time = callback_start_time
         
-        # Log synchronization issues
+        # Log synchronization issues - much more selective
         if img_age > 1000000 or det_age > 1000000:  # More than 1000 seconds old
-            if self.callback_count % 20 == 1:  # Reduce spam
+            if self.callback_count % 100 == 1:  # Much less frequent
                 self.get_logger().error(
                     f"[TIMESTAMP ERROR] Callback #{self.callback_count}: "
                     f"Img_age={img_age/1000:.1f}s, Det_age={det_age/1000:.1f}s (CLOCK ISSUE!)"
                 )
-        elif callback_interval > 200 or img_age > 500 or det_age > 500 or sync_diff > 100:
-            self.get_logger().warn(
-                f"[SYNC ISSUE] Callback #{self.callback_count}: "
-                f"Interval={callback_interval:.1f}ms, "
-                f"Img_age={img_age:.1f}ms, "
-                f"Det_age={det_age:.1f}ms, "
-                f"Sync_diff={sync_diff:.1f}ms"
-            )
+        elif (callback_interval > 1000 or img_age > 5000 or det_age > 5000 or sync_diff > 1000):  # Much higher thresholds
+            self.sync_issues_count += 1  # Track sync issues for summary
+            if self.callback_count % 100 == 1:  # Only log every 100th severe issue
+                self.get_logger().warn(
+                    f"[SYNC ISSUE] Callback #{self.callback_count}: "
+                    f"Interval={callback_interval:.1f}ms, "
+                    f"Img_age={img_age:.1f}ms, "
+                    f"Det_age={det_age:.1f}ms, "
+                    f"Sync_diff={sync_diff:.1f}ms"
+                )
         
         try:
             # Timing: Image loading and preprocessing
@@ -283,9 +293,10 @@ class MotionTrackingNode(Node):
                 
                 # Calculate total time
                 total_time = (publish_end_time - callback_start_time) * 1000  # Convert to ms
+                self.total_processing_time += total_time  # Track for summary
                 
-                # Log timing summary (every 5th callback or if slow)
-                if self.callback_count % 5 == 1 or total_time > 100:
+                # Log timing summary - much less frequent
+                if self.callback_count % 50 == 1 or total_time > 200:  # Every 50th callback or if really slow
                     self.get_logger().warn(
                         f"[TIMING] #{self.callback_count}: "
                         f"Img={img_processing_time:.1f}ms, "
@@ -297,9 +308,9 @@ class MotionTrackingNode(Node):
                         f"Dets={len(dets)}, Tracks={len(self.online_targets)}"
                     )
             else:
-                # No detections case
+                # No detections case - much less frequent logging
                 total_time = (time.time() - callback_start_time) * 1000
-                if self.callback_count % 10 == 1:
+                if self.callback_count % 100 == 1:  # Every 100th callback
                     self.get_logger().warn(
                         f"[NO DETS] #{self.callback_count}: "
                         f"Img={img_processing_time:.1f}ms, "
@@ -407,6 +418,30 @@ class MotionTrackingNode(Node):
         msg = self.bridge.cv2_to_imgmsg(image, encoding="bgr8")
         msg.header = header
         self.viz_pub.publish(msg)
+        
+    def log_performance_summary(self):
+        """Log periodic performance summary instead of spamming individual messages."""
+        current_time = time.time()
+        time_since_last = current_time - self.last_summary_time
+        
+        if self.callback_count > 0:
+            callback_rate = self.callback_count / time_since_last if time_since_last > 0 else 0
+            avg_processing_time = self.total_processing_time / self.callback_count if self.callback_count > 0 else 0
+            sync_issue_rate = (self.sync_issues_count / self.callback_count * 100) if self.callback_count > 0 else 0
+            
+            self.get_logger().info(
+                f"[SUMMARY] {time_since_last:.1f}s: "
+                f"Callbacks: {self.callback_count} ({callback_rate:.1f} Hz), "
+                f"Avg processing: {avg_processing_time:.1f}ms, "
+                f"Sync issues: {self.sync_issues_count} ({sync_issue_rate:.1f}%), "
+                f"Config: CUDA={self.use_cuda}, Queue={self.queue_size}"
+            )
+        
+        # Reset counters for next period
+        self.callback_count = 0
+        self.sync_issues_count = 0
+        self.total_processing_time = 0
+        self.last_summary_time = current_time
 
 def main():
     rclpy.init()
