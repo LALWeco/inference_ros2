@@ -31,6 +31,7 @@ motion_tracking_node:
     # Input topics
     image_topic: "/oak/rgb/image_raw/compressed"
     detection_topic: "/inference/Keypoint2DDetArray"
+    debug_mode: true
     use_cuda: false  # Use CUDA for GPU acceleration
     visualization: false  # Enable visualization output
     queue_size: 10  # Queue size for subscribers and publishers

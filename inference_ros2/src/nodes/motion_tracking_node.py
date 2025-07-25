@@ -49,6 +49,7 @@ class MotionTrackingNode(Node):
                 ("queue_size", rclpy.Parameter.Type.INTEGER),  # Queue size for subscribers, publishers
                 ("tracker_reset_interval", rclpy.Parameter.Type.INTEGER),  # Reset tracker every N frames
                 ("max_tracks", rclpy.Parameter.Type.INTEGER),  # Maximum number of tracks to maintain
+                ("debug_mode", rclpy.Parameter.Type.BOOL),  # Enable debug mode for additional logging
             ]
         )
         
@@ -56,6 +57,7 @@ class MotionTrackingNode(Node):
         self.image_topic = self.get_parameter("image_topic").value
         self.detection_topic = self.get_parameter("detection_topic").value
         self.use_cuda = self.get_parameter("use_cuda").value
+        self.debug_mode = self.get_parameter("debug_mode").value
         # Set default values for parameters that might not be in config
         try:
             self.visualization = self.get_parameter("visualization").value
@@ -152,7 +154,11 @@ class MotionTrackingNode(Node):
             self.queue_size,  # Queue size
             0.4  # 300ms tolerance - adjust based on your system
         )
-        self.ts.registerCallback(self.synchronized_callback)
+        if self.debug_mode:
+            self.kpt_coords = [[1000, 1000], [600, 600], [300, 300]]
+            self.ts.registerCallback(self.synchronized_callback_debug)
+        else:
+            self.ts.registerCallback(self.synchronized_callback)
         
         # Pre-allocate arrays to avoid memory allocation overhead
         self.prev_pts_buffer = np.zeros((1000, 2), dtype=np.float32)
@@ -164,8 +170,9 @@ class MotionTrackingNode(Node):
         
         self.get_logger().warn("=== Motion Tracking Node Initialized Successfully ===")
         self.get_logger().warn(f"Config: CUDA={self.use_cuda}, Visualization={self.visualization}, Queue={self.queue_size}")
-        self.get_logger().info("Initialized motion tracking node")
-        
+        if self.debug_mode:
+            self.get_logger().warn(f"Launching motion tracking in DEBUG MODE. Fixed tracks will be published at [x,y] coordinates: \n {self.kpt_coords}")
+
     def debug_image_callback(self, msg):
         """Debug callback to track image message arrival."""
         # Use ROS time instead of system time for consistent timing
@@ -365,11 +372,16 @@ class MotionTrackingNode(Node):
                         f"Total={total_time:.1f}ms"
                     )
                     
-                    
         except Exception as e:
             total_time = (self.get_clock().now().nanoseconds * 1e-9 - callback_start_time) * 1000
             self.get_logger().error(f"[ERROR] After {total_time:.1f}ms: {str(e)}")
-    
+
+    def synchronized_callback_debug(self, image_msg, det_msg):
+        """Synchronized callback for image and detection messages."""
+        img_header = image_msg.header
+        det_header = det_msg.header
+        self.publish_tracks_debug(img_header)
+        
     def convert_detections(self, det_msg: Keypoint2DArray) -> np.ndarray:
         """Convert detection message to numpy array format for tracker.
         
@@ -451,6 +463,35 @@ class MotionTrackingNode(Node):
             det.bbox.size_x = w
             det.bbox.size_y = h
             det.id = str(track.track_id)
+            msg.keypoints.append(keypoint)
+            msg.detections.append(det)
+            
+        self.track_pub.publish(msg)
+        
+    def publish_tracks_debug(self, header):
+        """Publish tracked keypoints (relative to full image).
+        Args:
+            tracks: List of track objects (coordinates relative to cropped image)
+            header: ROS message header
+        """
+        msg = Keypoint2DArray()
+        msg.header = header
+          # Example keypoint coordinates in camera image coordinates
+
+        for i, kpt in enumerate(self.kpt_coords):
+            det = Detection2D()
+            # Fetch keypoints from laser pointer debugger tool
+            keypoint = Keypoint2D()
+            keypoint.position.x = float(kpt[0]) # x value   in camera image coordinates
+            keypoint.position.y = float(kpt[1]) # y value   in camera image coordinates
+            keypoint.confidence = 1.0  # Tracked points are considered confident
+            
+            # Put dummy detection box
+            det.bbox.center.position.x = 100.0
+            det.bbox.center.position.y = 100.0
+            det.bbox.size_x = 10.0
+            det.bbox.size_y = 10.0
+            det.id = str(i)  # Use the index as the track ID
             msg.keypoints.append(keypoint)
             msg.detections.append(det)
             
