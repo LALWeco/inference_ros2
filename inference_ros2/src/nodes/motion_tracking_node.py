@@ -155,7 +155,21 @@ class MotionTrackingNode(Node):
             0.4  # 300ms tolerance - adjust based on your system
         )
         if self.debug_mode:
-            self.kpt_coords = [[1000, 1000], [600, 600], [300, 300]]
+            # x, y coordinates for fixed tracks in debug mode
+            # These coordinates are relative to the full image size
+            self.kpt_coords = [
+                            [180,434],
+                            [398,502],
+                            [770,408],
+                            [1096,510],
+                            [965,687],
+                            [656,679],
+                            [757,840],
+                            [1149,1018],
+                            [953,1015],
+                            [546,1031],
+                            [320,1023]
+                            ]
             self.ts.registerCallback(self.synchronized_callback_debug)
         else:
             self.ts.registerCallback(self.synchronized_callback)
